@@ -395,18 +395,14 @@ export default function App() {
     try {
       if (haveLocal) {
         const lm = local.meta || {}
-        const d = await getThreadDelta(t.key, lm.maxRev || 0)
+        // SIEMPRE los últimos ~60 del server (getThread), NO el delta por rev: tras merges/rekeys server-side el rev del cache
+        // se desincroniza → el delta deja HUECOS (mensajes recientes que no aparecen, ej. FedEx). getThread trae la ventana
+        // reciente COMPLETA; el cache solo aporta el historial viejo al instante. Costo similar al delta, y siempre correcto.
+        const d = await getThread(t.key)
         const byId = new Map(local.items.map((i) => [i.id, i])); for (const it of (d.items || [])) byId.set(it.id, it)
-        let merged = [...byId.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0))
-        // STALE-GUARD: si la bandeja dice que el hilo tiene algo MÁS NUEVO que lo que trajo el delta (pasa tras un merge/rekey
-        // server-side: el rev del cache quedó desalineado, el delta no alcanza), recargá el hilo COMPLETO y fusionalo.
-        const newestTs = merged.length ? (merged[merged.length - 1].ts || 0) : 0
-        if ((t.ts || 0) > newestTs + 60000) {
-          const full = await getThread(t.key).catch(() => null)
-          if (full?.items?.length) { for (const it of full.items) byId.set(it.id, it); merged = [...byId.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0)); cacheSave(t.key, full.items, { maxRev: full.maxRev || 0 }) }
-        }
-        setMsgs(merged); setOldestTs(merged[0]?.ts || 0); setHasMore(merged.length >= 20) // por cantidad, no por el flag stale
-        setThreadAuto(!!lm.autopilot)
+        const merged = [...byId.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0))
+        setMsgs(merged); setOldestTs(merged[0]?.ts || 0); setHasMore(merged.length >= 20)
+        setThreadAuto(!!d.autopilot)
         cacheSave(t.key, d.items || [], { maxRev: d.maxRev != null ? d.maxRev : (lm.maxRev || 0) })
       } else {
         const d = await getThread(t.key)
