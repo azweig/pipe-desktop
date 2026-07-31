@@ -27,7 +27,9 @@ export default function Calendar({ onOpenContact }: { onOpenContact?: (name: str
   const [ev, setEv] = useState<any>(null)
   const [detail, setDetail] = useState<any>(null)
   const [calOff, setCalOff] = useState<Set<string>>(new Set()) // calendarios/categorías apagados
+  const [now, setNow] = useState(() => new Date())             // hora actual → línea "ahora" en la grilla (se refresca cada minuto)
 
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(id) }, [])
   useEffect(() => { getCalendar(view, date).then(setD).catch(() => {}) }, [view, date])
   useEffect(() => { setDetail(null); if (ev?.id) getMeeting(ev.id).then(setDetail).catch(() => {}) }, [ev])
 
@@ -103,9 +105,13 @@ export default function Calendar({ onOpenContact }: { onOpenContact?: (name: str
             <div className="wkcols" style={{ gridTemplateColumns: `repeat(${gridDays.length},1fr)` }}>
               {gridDays.map((day) => {
                 const list = layoutDay(evs.filter((e) => e.day === day))
+                const isToday = day === d?.today
+                const nowMin = now.getHours() * 60 + now.getMinutes()
+                const showNow = isToday && nowMin >= H0 * 60 && nowMin <= H1 * 60
                 return (
                   <div key={day} className="wkcol">
                     {hours.map((h, i) => <div key={h} className="wkline" style={{ top: i * rowH }} />)}
+                    {showNow ? <div className="wknow" style={{ top: (nowMin - H0 * 60) * rowH / 60 }}><span className="wknow-dot" /></div> : null}
                     {list.map((e) => {
                       const sm = startMin(e), top = (sm - H0 * 60) * rowH / 60, h = Math.max(22, (e.durationMin || 30) * rowH / 60)
                       const w = 100 / (e._cols || 1), left = (e._col || 0) * w

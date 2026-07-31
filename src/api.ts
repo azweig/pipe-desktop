@@ -60,6 +60,18 @@ export const getThreadSync = (key: string, before = 0) => j("/api/thread/sync?ke
 export const getPerson = (name: string) => j("/api/person?name=" + encodeURIComponent(name))
 // buscador CONTEXTUAL: busca dentro del CUERPO de los mensajes (no solo nombres) → [{key,who,ts,dir,text}]
 export const searchContent = (q: string) => j("/api/search?q=" + encodeURIComponent(q))
+// 🤖 buscador con IA (router): ⚡ facetas (0 tokens) o 🧠 RAG. Mismo endpoint que web/mobile.
+// → { mode:"facets"|"rag", type:"find"|…, engine, answer, results:[{key,name,ts,text,media,mediaType,filename}], threads:[{key,name,summary,path}], matches, ragMode, degraded }
+export const routerSearch = (q: string) => j("/api/router-search", { method: "POST", body: JSON.stringify({ q }) })
+// ── RADAR (coach) — feed proactivo: { promises[], questions[], waiting[], proposals[], nudges[], brief } ──
+export const getCoach = () => j("/api/coach")
+export const coachAction = (key: string, action: string) => j("/api/coach/action", { method: "POST", body: JSON.stringify({ key, action }) })
+// ── NOTAS (segundo cerebro) ──
+export const getNotesDigest = () => j("/api/notes/digest")
+export const getNotes = (cat = "all", status = "active") => j("/api/notes/list?cat=" + encodeURIComponent(cat) + "&status=" + status + "&limit=120")
+export const getNotesChat = () => j("/api/notes/chat")
+export const notesChat = (q: string) => j("/api/notes/chat", { method: "POST", body: JSON.stringify({ q }) })
+export const noteAction = (id: string, action: string) => j("/api/notes/action", { method: "POST", body: JSON.stringify({ id, action }) })
 export const getGroups = () => j("/api/groups")
 export const getCalendar = (view = "semana", date = "") => j("/api/calendar?view=" + view + (date ? "&date=" + date : ""))
 export const getMeeting = (id: string) => j("/api/meeting?id=" + encodeURIComponent(id))
@@ -125,6 +137,9 @@ export const importWhatsAppZipB64 = (b64: string, o: WaImportOpts = {}): Promise
 // baja una foto/avatar del hub (autenticada) como data URI, para el <img>
 export const hubImage = (path: string): Promise<string> =>
   invoke("hub_image", { url: /^https?:\/\//.test(path) ? path : BASE + path, cookie: SID || null }) as Promise<string>
+// baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda y lo abre con la app por defecto del SO → devuelve la ruta local
+export const hubOpenFile = (path: string, filename?: string): Promise<string> =>
+  invoke("hub_open_file", { url: /^https?:\/\//.test(path) ? path : BASE + path, filename: filename || null, cookie: SID || null }) as Promise<string>
 
 export type Thread = {
   key: string; name: string; lastText?: string; ts?: number; unread?: number; unseen?: number

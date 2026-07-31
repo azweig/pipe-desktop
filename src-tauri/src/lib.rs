@@ -53,6 +53,41 @@ async fn hub_image(url: String, cookie: Option<String>) -> Result<String, String
   Ok(format!("data:{};base64,{}", ct, b64))
 }
 
+// Baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda en una carpeta temporal con su nombre real y lo ABRE con la app
+// por defecto del SO (Vista Previa/Word/Excel/…). Espejo de hub_image pero para cualquier tipo (pdf/docx/xlsx/…): el webview no
+// puede descargar con la cookie de sesión, así que la descarga+apertura la hace el lado nativo. Devuelve la ruta del archivo.
+#[tauri::command]
+async fn hub_open_file(url: String, filename: Option<String>, cookie: Option<String>) -> Result<String, String> {
+  let client = reqwest::Client::builder().user_agent("Pipe-Desktop").build().map_err(|e| e.to_string())?;
+  let mut req = client.get(&url);
+  if let Some(c) = cookie {
+    if !c.is_empty() { req = req.header("Cookie", format!("sid={}", c)); }
+  }
+  let resp = req.send().await.map_err(|e| e.to_string())?;
+  if !resp.status().is_success() { return Err(format!("HTTP {}", resp.status())); }
+  // nombre: el que pasó la UI; si no, el de Content-Disposition; si no, "documento"
+  let mut name = filename.unwrap_or_default().trim().to_string();
+  if name.is_empty() {
+    if let Some(cd) = resp.headers().get("content-disposition").and_then(|v| v.to_str().ok()) {
+      if let Some(i) = cd.find("filename=") { name = cd[i + 9..].trim_matches(|c| c == '"' || c == ' ' || c == ';').to_string(); }
+    }
+  }
+  if name.is_empty() { name = "documento".to_string(); }
+  // saneo del nombre para el sistema de archivos
+  let name: String = name.chars().map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c }).collect();
+  let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+  let mut path = std::env::temp_dir();
+  path.push("pipe-downloads");
+  std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+  path.push(&name);
+  std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+  let p = path.to_string_lossy().to_string();
+  #[cfg(target_os = "macos")] std::process::Command::new("open").arg(&p).spawn().map_err(|e| e.to_string())?;
+  #[cfg(target_os = "windows")] std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn().map_err(|e| e.to_string())?;
+  #[cfg(target_os = "linux")] std::process::Command::new("xdg-open").arg(&p).spawn().map_err(|e| e.to_string())?;
+  Ok(p)
+}
+
 // Lee un archivo LOCAL (el export de WhatsApp que el usuario elige con el diálogo nativo) y lo devuelve en base64.
 // La UI lo reenvía por hub_upload como cuerpo crudo. Usa std::fs directo (no el plugin fs) → no necesita scope de capabilities.
 #[tauri::command]
@@ -77,7 +112,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())          // diálogo nativo para elegir el archivo de WhatsApp
     .plugin(tauri_plugin_notification::init())    // notificaciones locales del SO al llegar un mensaje nuevo
-    .invoke_handler(tauri::generate_handler![hub_fetch, hub_upload, hub_image, open_url, read_file_b64])
+    .invoke_handler(tauri::generate_handler![hub_fetch, hub_upload, hub_image, hub_open_file, open_url, read_file_b64])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

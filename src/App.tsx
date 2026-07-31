@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, hubImage, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
+import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
 
@@ -98,6 +99,25 @@ function MediaView({ id, path, kind }: { id: string; path: string; kind: string 
     </>
   )
 }
+// tarjeta de ARCHIVO/DOCUMENTO (pdf/docx/xlsx/…): igual que la web ("📄 nombre · Abrir / descargar"). Al click, el lado nativo
+// baja el archivo autenticado, lo guarda y lo abre con la app por defecto del SO (el webview no puede descargar con la cookie).
+function FileCard({ path, filename }: { path: string; filename: string }) {
+  const [state, setState] = useState<"" | "load" | "err">("")
+  const open = async () => {
+    if (state === "load") return
+    setState("load")
+    try { await hubOpenFile(path, filename === "Documento" ? "" : filename); setState("") } catch { setState("err") }
+  }
+  return (
+    <div className="filecard" onClick={open} data-tip="Abrir / descargar">
+      <span className="fca">{state === "load" ? "⏳" : "📄"}</span>
+      <div className="fcb">
+        <div className="fcn">{filename}</div>
+        <div className="fcm">{state === "err" ? "No se pudo abrir — reintentá" : state === "load" ? "Descargando…" : "Abrir / descargar"}</div>
+      </div>
+    </div>
+  )
+}
 // convierte URLs del texto en links clickeables que abren en el navegador del sistema (no dentro del webview)
 const URL_RE = /(https?:\/\/[^\s]+)/g
 function Linkified({ text }: { text: string }) {
@@ -106,10 +126,47 @@ function Linkified({ text }: { text: string }) {
     ? <a key={i} href={p} onClick={(e) => { e.preventDefault(); openExternal(p.replace(/[.,)]+$/, "")) }} style={{ color: "var(--accent)", textDecoration: "underline", cursor: "pointer", wordBreak: "break-all" }}>{p}</a>
     : <span key={i}>{p}</span>)}</>
 }
+// 🤖 tarjeta de resultado del buscador con IA (router-search). Espeja mobile AiCard: ⚡ facetas vs 🧠 RAG, lista "find" o respuesta RAG + fuentes.
+function AiSearchCard({ res, onOpen }: { res: any; onOpen: (key: string, name?: string) => void }) {
+  if (!res) return null
+  if (res.loading) return <div className="aicard" style={{ flexDirection: "row", alignItems: "center" }}><div className="spin" style={{ width: 16, height: 16, borderWidth: 2 }} /><span style={{ marginLeft: 10, color: "var(--muted)" }}>Buscando en tus mensajes…</span></div>
+  if (res.error) return <div className="aicard"><span style={{ color: "var(--muted)" }}>No pude buscar eso ahora — probá de nuevo.</span></div>
+  const fast = res.mode === "facets"
+  const chip = <span className="aichip" style={{ background: fast ? "#0ea5e9" : "var(--accent)" }}>{fast ? `⚡ ${res.engine || "facetas"}` : "🧠 IA · RAG"}</span>
+  const srcs = (res.threads || []).slice(0, 5)
+  const sources = srcs.length ? <div className="aisrcs">{srcs.map((s: any) => <span key={s.key} className="aisrc" onClick={() => onOpen(s.key, s.name)} title={s.summary || ""}>{s.name || s.key}</span>)}</div> : null
+  if (res.type === "find") {
+    const results = res.results || []
+    return (
+      <div className="aicard">
+        <div className="aihead"><span className="aiht">🔎 {results.length} resultado{results.length === 1 ? "" : "s"}</span>{chip}</div>
+        {results.length ? results.slice(0, 30).map((m: any, i: number) => {
+          const label = m.filename || m.text || m.mediaType || "archivo"
+          return (
+            <div key={m.id || i} className="airow" onClick={() => onOpen(m.key, m.name)}>
+              <div className="airl">{String(label).slice(0, 90)}</div>
+              <div className="airm">{m.name || ""}{m.ts ? " · " + ago(m.ts) : ""}</div>
+            </div>
+          )
+        }) : <span style={{ color: "var(--muted)" }}>No encontré nada con eso.</span>}
+        {sources}
+      </div>
+    )
+  }
+  return (
+    <div className="aicard">
+      <div className="aihead"><span className="aiht">Respuesta de tu cerebro</span>{chip}</div>
+      <div className="aians"><Linkified text={res.answer || "No pude responder eso — probá reformular."} /></div>
+      {sources ? <><div className="aifl">Fuentes</div>{sources}</> : null}
+    </div>
+  )
+}
 function Bubble({ m, onFeedback }: { m: Msg; onFeedback?: (m: Msg) => void }) {
   const out = m.dir === "out"
   const [reveal, setReveal] = useState(false) // modo encubierto: ver la tapadera original (lo que ve WhatsApp)
   const hasMedia = m.media && /^(image|audio|video|sticker)$/.test(m.mediaType || "")
+  const isFile = m.mediaType === "file" && !!m.media
+  const fileName = (m as any).filename || (m.text && !PLACEHOLDER.test(m.text) ? m.text : "") || "Documento"
   const caption = m.text && !PLACEHOLDER.test(m.text) ? m.text : ""
   return (
     <div className={"bubble " + (out ? "out" : "in")}>
@@ -118,7 +175,7 @@ function Bubble({ m, onFeedback }: { m: Msg; onFeedback?: (m: Msg) => void }) {
           <Linkified text={reveal ? (m.text || "") : m.covert.text} />
           <div className="covertbadge" onClick={() => setReveal((v) => !v)} title="Modo encubierto — lo que ve WhatsApp es la tapadera">🕊️ {reveal ? "ver descifrado" : "descifrado · ver original"}</div>
         </>
-      ) : hasMedia ? <MediaView id={m.id} path={m.media!} kind={m.mediaType!} /> : (m.text ? <Linkified text={m.text} /> : (m.mediaType === "file" ? "📄 " + ((m as any).filename || "Archivo") : ""))}
+      ) : hasMedia ? <MediaView id={m.id} path={m.media!} kind={m.mediaType!} /> : isFile ? <FileCard path={m.media!} filename={fileName} /> : (m.text ? <Linkified text={m.text} /> : (m.mediaType === "file" ? "📄 Documento" : ""))}
       {hasMedia && caption ? <div style={{ marginTop: 6 }}><Linkified text={caption} /></div> : null}
       {m.summary ? <div className="msgsum">✦ {m.summary}</div> : null}
       {m.auto ? <div className="autobadge" onClick={() => onFeedback?.(m)} title="Respondido por el piloto — calificar">🤖 lo respondió el piloto · calificar</div> : null}
@@ -149,7 +206,7 @@ export default function App() {
   const [loadingThread, setLoadingThread] = useState(false)
   const [showCtx, setShowCtx] = useState(false)              // panel de contexto: oculto hasta que hacés click en el nombre
   const [chOff, setChOff] = useState<Set<string>>(new Set()) // canales apagados (filtro real de la lista)
-  const [pane, setPane] = useState<"mensajes" | "calendario">("mensajes") // vista del rail
+  const [pane, setPane] = useState<"mensajes" | "calendario" | "radar" | "notas" | "contactos">("mensajes") // vista del rail
   const [draft, setDraft] = useState("")
   const [targets, setTargets] = useState<any[]>([])
   const [threadAuto, setThreadAuto] = useState(false)         // ¿el contacto abierto tiene piloto automático?
@@ -170,6 +227,7 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [query, setQuery] = useState("")                     // buscador de la bandeja (identidad: nombre/teléfono/email)
   const [msgHits, setMsgHits] = useState<any[]>([])          // resultados del buscador CONTEXTUAL (dentro de los mensajes)
+  const [aiRes, setAiRes] = useState<any>(null)              // 🤖 resultado del buscador con IA (router-search: ⚡ facetas / 🧠 RAG)
   const [syncMsg, setSyncMsg] = useState("")                 // indicador del sync de texto completo ("Guardando historial…")
   const [toast, setToast] = useState("")                     // aviso efímero de éxito (se va solo)
   const [avatarMenu, setAvatarMenu] = useState(false)        // menú del avatar (AZ) abajo-izquierda: Configuración / Cerrar sesión
@@ -227,6 +285,13 @@ export default function App() {
   }, [query])
 
   const refreshThreads = () => getThreads().then((d) => { const arr = Array.isArray(d) ? d : d.threads || []; setThreads(arr); try { localStorage.setItem("pipe_threads", JSON.stringify(arr)) } catch {} }).catch(() => {})
+  // 🤖 buscador con IA: hits el router (⚡ facetas / 🧠 RAG). Muestra una tarjeta arriba de la lista, como mobile/web.
+  const runAi = useCallback(async () => {
+    const qq = query.trim(); if (!qq) { setAiRes(null); return }
+    setAiRes({ loading: true })
+    try { const r = await routerSearch(qq); setAiRes(r && (r.answer || r.results || r.threads) ? r : { error: true }) }
+    catch { setAiRes({ error: true }) }
+  }, [query])
   const reloadThread = async (key: string) => { try { const d = await getThread(key); setMsgs(d.items || []); cacheSave(key, d.items || [], { maxRev: d.maxRev || 0 }) } catch {} }
   // 💾 SYNC DE TEXTO COMPLETO: baja TODO el texto de TODAS las conversaciones a tu Mac (IndexedDB), en 2do plano.
   // Las imágenes/media quedan on-demand (por link) — solo el texto se guarda entero. Resumible (guarda hasta dónde llegó).
@@ -309,6 +374,18 @@ export default function App() {
     if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) setSched(r) }).catch(() => {})
     getCovert(t.key).then((c) => setThreadCovert(c?.enabled ? (c.style || "poema") : null)).catch(() => {}) // 🕊️ ¿este contacto tiene modo encubierto?
   }, [])
+  // abrir una conversación desde cualquier pane (radar/notas/contactos/búsqueda IA): vuelve a Mensajes y abre el hilo
+  const openByKey = useCallback((key: string, name?: string, photo?: string) => {
+    setPane("mensajes")
+    const t = threads.find((x) => x.key === key)
+    open(t || ({ key, name: name || key, photo } as Thread))
+  }, [threads, open])
+  // desde Radar: abre el hilo y precarga un borrador de respuesta sugerido por la IA
+  const openWithDraft = useCallback(async (key: string, name?: string) => {
+    openByKey(key, name)
+    const r = await suggestReply(key).catch(() => null)
+    if (r?.draft) setDraft(r.draft)
+  }, [openByKey])
 
   // ── NOTIFICACIONES LOCALES (equivalente desktop del web-push/expo) ──
   // seguimiento del foco: no molesto con notificaciones si el usuario ya está mirando la app
@@ -527,15 +604,15 @@ export default function App() {
   } as Record<string, number>
 
   return (
-    <div className={"app" + (pane === "calendario" ? " cal" : (sel ? " topen" + (showCtx ? " copen" : "") : ""))}>
+    <div className={"app" + (pane === "calendario" ? " cal" : pane !== "mensajes" ? " full" : (sel ? " topen" + (showCtx ? " copen" : "") : ""))}>
       {/* rail */}
       <div className="rail">
         <div className="brand" />
         <button className={"tipright" + (pane === "mensajes" ? " on" : "")} onClick={() => setPane("mensajes")} data-tip="Mensajes">💬</button>
         <button className={"tipright" + (pane === "calendario" ? " on" : "")} onClick={() => setPane("calendario")} data-tip="Calendario">🗓</button>
-        <button className="tipright" data-tip="Radar (próximamente)">✦</button>
-        <button className="tipright" data-tip="Notas (próximamente)">📄</button>
-        <button className="tipright" data-tip="Personas (próximamente)">👤</button>
+        <button className={"tipright" + (pane === "radar" ? " on" : "")} onClick={() => setPane("radar")} data-tip="Radar">✦</button>
+        <button className={"tipright" + (pane === "notas" ? " on" : "")} onClick={() => setPane("notas")} data-tip="Notas">📄</button>
+        <button className={"tipright" + (pane === "contactos" ? " on" : "")} onClick={() => setPane("contactos")} data-tip="Contactos">👤</button>
         <div className="spacer" />
         <button className="me tipright" data-tip="Cuenta y ajustes" onClick={() => setAvatarMenu((v) => !v)}>AZ</button>
       </div>
@@ -552,12 +629,16 @@ export default function App() {
         const nn = name.trim().toLowerCase()
         const t = threads.find((x) => (x.name || "").trim().toLowerCase() === nn) || threads.find((x) => (x.name || "").toLowerCase().includes(nn.split(" ")[0]))
         setPane("mensajes"); if (t) open(t)
-      }} /> : <>
+      }} />
+      : pane === "radar" ? <Radar onOpen={openByKey} onDraft={openWithDraft} />
+      : pane === "notas" ? <Notas />
+      : pane === "contactos" ? <Contactos threads={threads} onOpen={openByKey} />
+      : <>
 
       {/* sidebar */}
       <div className="side">
         <button className="newbtn">＋ Nuevo</button>
-        <div className="search"><span style={{ opacity: .6 }}>🔎</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar — nombre, teléfono, email…" />{query ? <span onClick={() => setQuery("")} style={{ cursor: "pointer", opacity: .6 }}>✕</span> : null}</div>
+        <div className="search"><span style={{ opacity: .6 }}>🔎</span><input value={query} onChange={(e) => { setQuery(e.target.value); if (!e.target.value.trim()) setAiRes(null) }} onKeyDown={(e) => { if (e.key === "Enter") runAi() }} placeholder="Buscar — nombre, teléfono, email…" />{query ? <span onClick={() => { setQuery(""); setAiRes(null) }} style={{ cursor: "pointer", opacity: .6 }}>✕</span> : null}<button className="aibtn" data-tip="Preguntá a la IA — busca en TODO (⚡ facetas / 🧠 RAG)" onClick={runAi} disabled={!query.trim()}>🤖</button></div>
         <div className="grp">Bandeja</div>
         {NAV.map((n) => (
           <div key={n.id} className={"navitem" + (nav === n.id ? " on" : "")} onClick={() => setNav(n.id)}>
@@ -588,6 +669,7 @@ export default function App() {
       {/* list */}
       <div className="list">
         <div className="lhead"><h2>{query.trim() ? "Resultados" : "Conversaciones"}</h2><span style={{ color: "var(--muted2)" }}>⚟</span></div>
+        {query.trim() && aiRes ? <AiSearchCard res={aiRes} onOpen={openByKey} /> : null}
         {query.trim() ? <div className="grp" style={{ padding: "6px 18px 2px" }}>Contactos</div> : null}
         {list.map((t) => (
           <div key={t.key} className={"row" + (sel?.key === t.key ? " on" : "") + (t.escalated ? " esc" : "")} onClick={() => open(t)}>
@@ -1078,6 +1160,223 @@ function Messages({ msgs, onFeedback }: { msgs: Msg[]; onFeedback?: (m: Msg) => 
     }
   })
   return <>{out}</>
+}
+
+// ── RADAR: feed proactivo (coach). Espera de vos + vale la pena + prometiste. Acciones done/snooze/dismiss + abrir/borrador. ──
+function Radar({ onOpen, onDraft }: { onOpen: (key: string, name?: string) => void; onDraft: (key: string, name?: string) => void }) {
+  const [d, setD] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [gone, setGone] = useState<Set<string>>(new Set()) // items despachados → fuera de la vista
+  useEffect(() => { getCoach().then((r) => setD(r || {})).catch(() => setD({})).finally(() => setLoading(false)) }, [])
+  const act = async (key: string, action: string) => { if (key) setGone((p) => new Set(p).add(key)); await coachAction(key, action).catch(() => {}) }
+  if (loading) return <div className="pane"><div className="center"><div className="spin" /></div></div>
+  const waiting = (d?.waiting || []).filter((w: any) => !gone.has(w.thread || w.key || ""))
+  const questions = (d?.questions || []).filter((qz: any) => !gone.has(qz.thread || qz.key || ""))
+  const esperan = [
+    ...waiting.map((w: any) => ({ ...w, who: w.name || w.who, key: w.thread || w.key, kind: "waiting" })),
+    ...questions.map((qz: any) => ({ ...qz, who: qz.who || qz.name, key: qz.thread || qz.key, kind: "question" })),
+  ].sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0))
+  const cards = [...(d?.proposals || []), ...(d?.nudges || []).filter((n: any) => n.type === "reconectar")].filter((n: any) => !gone.has(n.key || n.convKey || ""))
+  const promesas = (d?.promises || []).filter((p: any) => p.stillOpen !== false && !gone.has(p.thread || p.key || ""))
+  const hero = esperan[0] || null
+  const empty = !esperan.length && !cards.length && !promesas.length
+  return (
+    <div className="pane">
+      <div className="panehead"><h1>Radar</h1><span className="panesub">{esperan.length} {esperan.length === 1 ? "pendiente" : "pendientes"} · {cards.length} {cards.length === 1 ? "vale" : "valen"} la pena hoy</span></div>
+      <div className="panebody">
+        {empty ? <div className="center" style={{ height: 220, color: "var(--muted)" }}>Nada en el radar ahora — lo urgente ya está en Mensajes.</div> : null}
+        {hero ? (
+          <div className="rhero">
+            <div className="rherolab">✦ Empezá por acá</div>
+            <div className="rheroname">{hero.who || "—"}{hero.ageDays ? <span className="rage"> · hace {hero.ageDays}d</span> : null}</div>
+            {hero.text ? <div className="rherotext">“{String(hero.text).slice(0, 180)}”</div> : null}
+            <div className="rherobtns">
+              <button className="mbtn" style={{ flex: "0 0 auto", padding: "9px 16px" }} onClick={() => onDraft(hero.key, hero.who)}>➤ Ver y responder</button>
+              <button className="rghost" onClick={() => act(hero.key, "snooze")}>⏰ Después</button>
+            </div>
+          </div>
+        ) : null}
+        {esperan.length ? <div className="rsec">Esperan de vos</div> : null}
+        {esperan.slice(0, 12).map((w: any, i: number) => (
+          <div key={"e" + i} className="rcard" onClick={() => onOpen(w.key, w.who)}>
+            <Avatar name={w.who || "?"} photo={w.photo} size={38} />
+            <div className="rcbody">
+              <div className="rctop"><span className="rcname">{w.who || "—"}</span>{w.ageDays ? <span className="rcage">{w.ageDays}d</span> : null}</div>
+              <div className="rctext">{w.kind === "question" ? "❓ " : ""}{String(w.text || "").slice(0, 140)}</div>
+            </div>
+            <button className="rreply" onClick={(e) => { e.stopPropagation(); onDraft(w.key, w.who) }} data-tip="Responder con IA">➤</button>
+          </div>
+        ))}
+        {cards.length ? <div className="rsec">Vale la pena mirar</div> : null}
+        {cards.slice(0, 12).map((n: any, i: number) => (
+          <div key={"c" + i} className="rcard col">
+            <div className="rcsub">{n.subject || n.insight || "Sugerencia"}</div>
+            {n.insight && n.subject ? <div className="rctext" style={{ marginTop: 4 }}>{n.insight}</div> : null}
+            <div className="rcactions">
+              {n.convKey ? <button className="rminibtn" onClick={() => onDraft(n.convKey, n.subject)}>Escribir</button> : <button className="rminibtn" onClick={() => act(n.key, "done")}>Listo</button>}
+              <button className="rminibtn ghost" onClick={() => act(n.key, "snooze")}>Después</button>
+              <button className="rminibtn ghost" onClick={() => act(n.key, "dismiss")}>✕</button>
+            </div>
+          </div>
+        ))}
+        {promesas.length ? <div className="rsec">Prometiste</div> : null}
+        {promesas.slice(0, 8).map((p: any, i: number) => (
+          <div key={"p" + i} className="rcard" onClick={() => onOpen(p.thread || p.key, p.name)}>
+            <div className="rcbody"><div className="rctop"><span className="rcname">{p.name || "—"}</span></div><div className="rctext">🤝 {String(p.promesa || p.text || "").slice(0, 140)}</div></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── NOTAS: segundo cerebro. Feed (digest IA + categorías + tarjetas) y Chat sobre tus notas. ──
+const NT_QUICK = ["Resumí mis notas de esta semana", "¿Qué estoy postergando?", "¿Qué links guardé para leer?"]
+function NoteImg({ path }: { path: string }) {
+  const src = useHubMedia(path)
+  if (!src) return null
+  return <img className="ntcimg" src={src} alt="" />
+}
+function NoteCard({ n, onAct, junk }: { n: any; onAct: (id: string, a: string) => void; junk: boolean }) {
+  const title = n.clip_title || n.title || (n.text || "").slice(0, 100) || "Nota"
+  return (
+    <div className="ntcard">
+      <div className="ntchead">
+        <span className="ntcat-badge">{n.category || n.channel || "nota"}</span>
+        <span className="ntctime">{ago(n.ts)}</span>
+        {junk ? <button className="ntcbtn" onClick={() => onAct(n.id, "approve")} data-tip="Restaurar">↩</button> : (<>
+          <button className="ntcbtn" onClick={() => onAct(n.id, n.pinned ? "unpin" : "pin")} data-tip={n.pinned ? "Desfijar" : "Fijar"} style={n.pinned ? { color: "var(--accent)" } : undefined}>📌</button>
+          <button className="ntcbtn" onClick={() => onAct(n.id, "discard")} data-tip="Descartar">✕</button>
+        </>)}
+      </div>
+      <div className="ntctitle">{title}</div>
+      {n.para && n.para !== title ? <div className="ntcpara">{n.para}</div> : null}
+      {n.media && /^(image|sticker)$/.test(n.mediaType || "") ? <NoteImg path={n.media} /> : null}
+      {n.summary ? <div className="msgsum" style={{ borderTop: 0, paddingTop: 0 }}>✦ {n.summary}</div> : null}
+    </div>
+  )
+}
+function Notas() {
+  const [mode, setMode] = useState<"feed" | "chat">("feed")
+  const [dig, setDig] = useState<any>(null)
+  const [items, setItems] = useState<any[]>([])
+  const [cats, setCats] = useState<any[]>([])
+  const [junk, setJunk] = useState(0)
+  const [cat, setCat] = useState("all")
+  const [status, setStatus] = useState<"active" | "junk">("active")
+  const [loading, setLoading] = useState(true)
+  const [chat, setChat] = useState<any[]>([])
+  const [q, setQ] = useState("")
+  const [asking, setAsking] = useState(false)
+  const chatRef = useRef<HTMLDivElement>(null)
+  const loadList = async (c: string, s: string) => { const nl = await getNotes(c, s).catch(() => null); if (nl) { setItems(nl.items || []); if (nl.categories) setCats(nl.categories); if (nl.junk != null) setJunk(nl.junk) } }
+  useEffect(() => {
+    Promise.all([getNotesDigest().catch(() => ({})), getNotesChat().catch(() => ({}))]).then(([dg, ch]: any[]) => { setDig(dg || {}); setChat((ch && ch.history) || []) })
+    loadList("all", "active").finally(() => setLoading(false))
+  }, [])
+  useEffect(() => { loadList(cat, status) }, [cat, status])
+  const send = async (preset?: string) => {
+    const txt = (preset || q).trim(); if (!txt) return
+    setQ(""); setChat((c) => [...c, { role: "user", text: txt }]); setAsking(true)
+    const r = await notesChat(txt).catch(() => null); setAsking(false)
+    setChat((c) => (r && r.history) ? r.history : [...c, { role: "ai", text: (r && r.answer) || "No pude responder ahora." }])
+    setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 120)
+  }
+  const onAct = async (id: string, action: string) => {
+    setItems((cur) => (action === "discard" || action === "archive") ? cur.filter((n) => n.id !== id) : cur.map((n) => n.id === id ? { ...n, pinned: action === "pin" } : n))
+    await noteAction(id, action).catch(() => {})
+  }
+  return (
+    <div className="pane">
+      <div className="panehead"><h1>Notas</h1><div className="ntmodes"><button className={mode === "feed" ? "on" : ""} onClick={() => setMode("feed")}>📝 Notas</button><button className={mode === "chat" ? "on" : ""} onClick={() => setMode("chat")}>💬 Preguntar</button></div></div>
+      {mode === "feed" ? (
+        <div className="panebody">
+          {loading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div> : (<>
+            {dig && (dig.reflexion || dig.resumen) ? (
+              <div className="ntdigest">
+                <div className="ntdlab">✦ La IA piensa</div>
+                {dig.resumen ? <div className="ntdtext">{dig.resumen}</div> : null}
+                {dig.reflexion ? <div className="ntdtext" style={{ marginTop: 6 }}>{dig.reflexion}</div> : null}
+                {(dig.temas || []).length ? <div className="nttemas">{dig.temas.map((t: string, i: number) => <span key={i} className="nttema">{t}</span>)}</div> : null}
+                {dig.count != null ? <div className="ntdmeta">{dig.count} notas · últimos 30 días</div> : null}
+              </div>
+            ) : null}
+            <div className="ntcats">
+              <button className={"ntcat" + (cat === "all" && status === "active" ? " on" : "")} onClick={() => { setCat("all"); setStatus("active") }}>Todas</button>
+              {cats.map((c: any) => <button key={c.category} className={"ntcat" + (cat === c.category && status === "active" ? " on" : "")} onClick={() => { setCat(c.category); setStatus("active") }}>{c.category} {c.n}</button>)}
+              {junk ? <button className={"ntcat" + (status === "junk" ? " on" : "")} onClick={() => { setStatus("junk"); setCat("all") }}>🗑 Descartadas {junk}</button> : null}
+            </div>
+            {items.length ? items.map((n: any) => <NoteCard key={n.id} n={n} onAct={onAct} junk={status === "junk"} />) : <div className="center" style={{ height: 140, color: "var(--muted)" }}>No hay notas acá.</div>}
+          </>)}
+        </div>
+      ) : (
+        <div className="ntchatwrap">
+          <div className="ntchat" ref={chatRef}>
+            {!chat.length ? <div className="ntquick">{NT_QUICK.map((p, i) => <button key={i} onClick={() => send(p)}>{p}</button>)}</div> : null}
+            {chat.map((m: any, i: number) => <div key={i} className={"ntmsg " + (m.role === "user" ? "user" : "ai")}>{m.text}</div>)}
+            {asking ? <div className="ntmsg ai"><span style={{ color: "var(--muted)" }}>pensando…</span></div> : null}
+          </div>
+          <div className="ntcompose">
+            <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send() }} placeholder="Preguntá sobre tus notas…" />
+            <button className="send" onClick={() => send()} disabled={!q.trim()}>➤</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── CONTACTOS: directorio (desde los hilos) + perfil (getPerson: bio/temas/datos/canales/stats). ──
+function Contactos({ threads, onOpen }: { threads: Thread[]; onOpen: (key: string, name?: string, photo?: string) => void }) {
+  const [q, setQ] = useState("")
+  const [selName, setSelName] = useState<string | null>(null)
+  const [p, setP] = useState<any>(null)
+  const [pLoading, setPLoading] = useState(false)
+  const people = threads
+    .filter((t) => t.key !== "self" && !((t as any).espacio) && t.bucket !== "spam")
+    .filter((t) => { const nq = q.trim().toLowerCase(); if (!nq) return true; return (`${t.name || ""} ${t.email || ""} ${t.key || ""}`).toLowerCase().includes(nq) })
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es"))
+  const selThread = threads.find((t) => t.name === selName)
+  const openProfile = (t: Thread) => { setSelName(t.name); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
+  return (
+    <div className="ctdir">
+      <div className="ctlist">
+        <div className="search" style={{ margin: "0 0 10px" }}><span style={{ opacity: .6 }}>🔎</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar contacto…" />{q ? <span onClick={() => setQ("")} style={{ cursor: "pointer", opacity: .6 }}>✕</span> : null}</div>
+        <div className="ctcount">{people.length} contactos</div>
+        {people.map((t) => (
+          <div key={t.key} className={"ctrow" + (selName === t.name ? " on" : "")} onClick={() => openProfile(t)}>
+            <Avatar name={t.name} photo={t.photo} size={38} />
+            <div className="ctmid"><div className="ctname">{t.name}</div><div className="ctsub">{(t.channels || []).map((c) => CH[c]?.label || c).join(" · ") || (t.group ? "Grupo" : "")}</div></div>
+          </div>
+        ))}
+        {!people.length ? <div className="center" style={{ height: 140, color: "var(--muted)" }}>Sin contactos</div> : null}
+      </div>
+      <div className="ctprofile">
+        {!selName ? <div className="center" style={{ color: "var(--muted)" }}>Elegí un contacto para ver su perfil</div> : pLoading ? <div className="center"><div className="spin" /></div> : (
+          <div className="ctpinner">
+            <div className="cav" style={{ background: colorOf(selName), width: 72, height: 72, fontSize: 24 }}>{initials(selName)}</div>
+            <div className="ctpname">{selName}</div>
+            <div className="ctprole">{p?.role || [p?.orgs].filter(Boolean).join(" · ") || (selThread?.channels || []).map((c) => CH[c]?.label || c).join(" · ")}</div>
+            <button className="mbtn" style={{ marginTop: 14 }} onClick={() => onOpen((p?.canon || selThread?.key || selName), selName || undefined, selThread?.photo)}>💬 Abrir conversación</button>
+            {p?.bio ? <><div className="ctpgrp">Quién es</div><div className="cbox">{p.bio}</div></> : null}
+            {(p?.topics || []).length ? <><div className="ctpgrp">De qué hablan</div><div className="cbox">{p.topics.slice(0, 6).join(" · ")}</div></> : null}
+            {((p?.contacts?.phones || []).length || (p?.contacts?.emails || []).length) ? (<>
+              <div className="ctpgrp">Datos de contacto</div>
+              <div className="ctchips">
+                {(p.contacts.phones || []).map((ph: string, i: number) => <span key={"ph" + i} className="ctchip">📞 {ph}</span>)}
+                {(p.contacts.emails || []).map((em: string, i: number) => <span key={"em" + i} className="ctchip clk" onClick={() => openExternal("mailto:" + em)}>✉️ {em}</span>)}
+              </div>
+            </>) : null}
+            {(p?.channels || []).length ? (<>
+              <div className="ctpgrp">Canales</div>
+              {p.channels.map((c: any, i: number) => <div key={i} className="ctchan"><span style={{ width: 8, height: 8, borderRadius: 9, background: CH[c.channel]?.c || "#ccc", display: "inline-block", flexShrink: 0 }} />{CH[c.channel]?.label || c.channel}{c.last ? <span className="ctchanago">{ago(c.last)}</span> : null}</div>)}
+            </>) : null}
+            {p?.stats ? <div className="ctstats">{p.stats.respMin != null ? <div className="ctstat"><b>{p.stats.respMin}m</b><span>responde</span></div> : null}{p.stats.messages != null ? <div className="ctstat"><b>{p.stats.messages}</b><span>mensajes</span></div> : null}</div> : null}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function Login({ onOk }: { onOk: () => void }) {
