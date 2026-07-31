@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -14,6 +14,7 @@ const AV = ["#6366f1", "#e0872b", "#22a06b", "#e2483d", "#2aabee", "#a855f7", "#
 const colorOf = (s: string) => AV[[...(s || "?")].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length]
 const initials = (n: string) => (n || "?").split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
 const hhmm = (ts?: number) => ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : ""
+const fmtDur = (s?: number) => { if (!s || !isFinite(s)) return ""; s = Math.round(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") }
 const ago = (ts?: number) => { if (!ts) return ""; const d = (Date.now() - ts) / 86400000; if (d < 1) return hhmm(ts); if (d < 2) return "Ayer"; return new Date(ts).toLocaleDateString("es", { day: "numeric", month: "short" }) }
 // etiqueta legible de la fecha detectada para agendar ({year,month,day,hour,minute})
 function schedLabel(s: any) {
@@ -60,8 +61,28 @@ function Avatar({ name, photo, size = 40 }: { name: string; photo?: string; size
   return <div className="avatar" style={{ width: size, height: size, background: colorOf(name), fontSize: size / 2.8 }}>{initials(name)}</div>
 }
 const PLACEHOLDER = /^(🖼|📹|🎤|📄|🌟|📎|📍|👤|🖼️)/
-function MediaView({ id, path, kind }: { id: string; path: string; kind: string }) {
-  const src = useHubMedia(path)
+// VIDEO: NO lo bajamos como base64 (pesado/lento, se colgaba). Mostramos un póster con "▶ Descargar y reproducir": al click, el lado
+// nativo (hub_open_file) baja el video autenticado a un archivo temporal y lo abre con el reproductor por defecto del SO. Trae el
+// video LOCAL sin martillar el webview con un data-URI gigante. Antes de bajar, siempre hay un póster clickeable (no un spinner eterno).
+function VideoCard({ path, filename, dur }: { path: string; filename?: string; dur?: number }) {
+  const [state, setState] = useState<"" | "load" | "err">("")
+  const play = async () => {
+    if (state === "load") return
+    setState("load")
+    try { await hubOpenFile(path, filename || "video.mp4"); setState("") } catch { setState("err") }
+  }
+  return (
+    <div className="videocard" onClick={play} data-tip="Descargar y reproducir con el reproductor del sistema">
+      <div className="vcposter"><span className="vcplay">{state === "load" ? <span className="spin" style={{ width: 20, height: 20, borderWidth: 2 }} /> : "▶"}</span></div>
+      <div className="vcmeta">
+        <span className="vcname">{filename || "Video"}</span>
+        <span className="vcsub">{state === "err" ? "No se pudo — reintentá" : state === "load" ? "Descargando…" : "▶ Descargar y reproducir"}{dur ? " · " + fmtDur(dur) : ""}</span>
+      </div>
+    </div>
+  )
+}
+function MediaView({ id, path, kind, filename, dur }: { id: string; path: string; kind: string; filename?: string; dur?: number }) {
+  const src = useHubMedia(kind === "video" ? undefined : path) // el video no se pre-baja (ver VideoCard); imágenes/audio siguen como data-URI
   // 🌐 transcribir + resumir: mismo backend que web/mobile (POST /api/media/summarize). Solo para audio/video/imagen recibidos.
   const [sum, setSum] = useState<{ summary?: string; transcript?: string; lang?: string } | null>(null)
   const [sumBusy, setSumBusy] = useState(false)
@@ -75,10 +96,10 @@ function MediaView({ id, path, kind }: { id: string; path: string; kind: string 
     if (!r || r.error) { setSumErr((r && r.error) || "No se pudo procesar el archivo."); return }
     setSum({ summary: r.summary, transcript: r.transcript, lang: r.lang })
   }
-  if (!src) return <div className="mediaload"><div className="spin" style={{ width: 18, height: 18, borderWidth: 2 }} /></div>
-  const player = kind === "image" ? <img className="mediaimg" src={src} alt="" />
-    : kind === "audio" ? <audio controls src={src} style={{ width: 250, height: 38 }} />
-    : kind === "video" ? <video controls src={src} className="mediavid" /> : null
+  if (kind !== "video" && !src) return <div className="mediaload"><div className="spin" style={{ width: 18, height: 18, borderWidth: 2 }} /></div>
+  const player = kind === "video" ? <VideoCard path={path} filename={filename} dur={dur} />
+    : kind === "image" ? <img className="mediaimg" src={src} alt="" />
+    : kind === "audio" ? <audio controls src={src} style={{ width: 250, height: 38 }} /> : null
   return (
     <>
       {player}
@@ -161,7 +182,7 @@ function AiSearchCard({ res, onOpen }: { res: any; onOpen: (key: string, name?: 
     </div>
   )
 }
-function Bubble({ m, onFeedback }: { m: Msg; onFeedback?: (m: Msg) => void }) {
+function Bubble({ m, isGroup, onFeedback }: { m: Msg; isGroup?: boolean; onFeedback?: (m: Msg) => void }) {
   const out = m.dir === "out"
   const [reveal, setReveal] = useState(false) // modo encubierto: ver la tapadera original (lo que ve WhatsApp)
   const hasMedia = m.media && /^(image|audio|video|sticker)$/.test(m.mediaType || "")
@@ -170,12 +191,14 @@ function Bubble({ m, onFeedback }: { m: Msg; onFeedback?: (m: Msg) => void }) {
   const caption = m.text && !PLACEHOLDER.test(m.text) ? m.text : ""
   return (
     <div className={"bubble " + (out ? "out" : "in")}>
+      {/* en GRUPOS: quién mandó cada mensaje entrante (como cualquier chat grupal), con color por nombre. No en 1:1 ni en salientes. */}
+      {!out && isGroup && m.name ? <div className="bsender" style={{ color: colorOf(m.name) }}>{m.name}</div> : null}
       {m.covert ? (
         <>
           <Linkified text={reveal ? (m.text || "") : m.covert.text} />
           <div className="covertbadge" onClick={() => setReveal((v) => !v)} title="Modo encubierto — lo que ve WhatsApp es la tapadera">🕊️ {reveal ? "ver descifrado" : "descifrado · ver original"}</div>
         </>
-      ) : hasMedia ? <MediaView id={m.id} path={m.media!} kind={m.mediaType!} /> : isFile ? <FileCard path={m.media!} filename={fileName} /> : (m.text ? <Linkified text={m.text} /> : (m.mediaType === "file" ? "📄 Documento" : ""))}
+      ) : hasMedia ? <MediaView id={m.id} path={m.media!} kind={m.mediaType!} filename={(m as any).filename} dur={(m as any).dur} /> : isFile ? <FileCard path={m.media!} filename={fileName} /> : (m.text ? <Linkified text={m.text} /> : (m.mediaType === "file" ? "📄 Documento" : ""))}
       {hasMedia && caption ? <div style={{ marginTop: 6 }}><Linkified text={caption} /></div> : null}
       {m.summary ? <div className="msgsum">✦ {m.summary}</div> : null}
       {m.auto ? <div className="autobadge" onClick={() => onFeedback?.(m)} title="Respondido por el piloto — calificar">🤖 lo respondió el piloto · calificar</div> : null}
@@ -735,7 +758,7 @@ export default function App() {
             {!loadingThread && !threadErr && hasMore ? <div className="loadolder" onClick={loadOlder}>{loadingMore ? "Cargando…" : "▲ Cargar mensajes anteriores"}</div> : null}
             {loadingThread ? <div className="center"><div className="spin" /></div>
               : threadErr ? <div className="center" style={{ flexDirection: "column", gap: 10 }}><span style={{ color: "var(--muted)" }}>{threadErr}</span><button className="mbtn" onClick={() => open(sel)}>Reintentar</button></div>
-              : <Messages key={sel.key} msgs={msgs} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} />}
+              : <Messages key={sel.key} msgs={msgs} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} />}
             {sumCard ? <div className="aisum" style={{ margin: "10px 6px" }}>📝 {sumCard}</div> : null}
           </div>
           <div className="composer">
@@ -1142,7 +1165,7 @@ function SendOptions({ opts, onPick, onClose }: { opts: any; onPick: (t: string)
 }
 
 const RENDER_CAP = 200 // solo renderizamos las últimas N burbujas: un hilo de miles (email/grupo) NO explota el DOM ni congela la app
-function Messages({ msgs, onFeedback }: { msgs: Msg[]; onFeedback?: (m: Msg) => void }) {
+function Messages({ msgs, isGroup, onFeedback }: { msgs: Msg[]; isGroup?: boolean; onFeedback?: (m: Msg) => void }) {
   const [cap, setCap] = useState(RENDER_CAP)
   if (!msgs.length) return <div className="center">Sin mensajes</div>
   const overflow = msgs.length > cap
@@ -1156,7 +1179,7 @@ function Messages({ msgs, onFeedback }: { msgs: Msg[]; onFeedback?: (m: Msg) => 
     if (m.channel === "email") {
       out.push(<div key={m.id} className="emailcard"><div className="et">✉️ {(m.text || "").split(" — ")[0].slice(0, 60)}</div>{(m as any).summary && <div className="esum">✦ {(m as any).summary}</div>}</div>)
     } else {
-      out.push(<Bubble key={m.id} m={m} onFeedback={onFeedback} />)
+      out.push(<Bubble key={m.id} m={m} isGroup={isGroup} onFeedback={onFeedback} />)
     }
   })
   return <>{out}</>
@@ -1385,25 +1408,42 @@ function Notas() {
 }
 
 // ── CONTACTOS: directorio (desde los hilos) + perfil (getPerson: bio/temas/datos/canales/stats). ──
+type Contact = { name: string; key?: string; photo?: string; channels?: string[]; group?: boolean; role?: string }
 function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; onOpen: (key: string, name?: string, photo?: string) => void; onToast: (msg: string) => void; onMerged: () => void }) {
   const [q, setQ] = useState("")
   const [selName, setSelName] = useState<string | null>(null)
   const [p, setP] = useState<any>(null)
   const [pLoading, setPLoading] = useState(false)
+  const [dir, setDir] = useState<any[] | null>(null) // DIRECTORIO completo del vault (todos los contactos, no solo los ~200 hilos recientes)
   // MODO SELECCIÓN: elegir 2+ contactos y fusionarlos (dedupe). El primero seleccionado es el que se CONSERVA.
   const [selMode, setSelMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
-  const people = threads
-    .filter((t) => t.key !== "self" && !((t as any).espacio) && t.bucket !== "spam")
-    .filter((t) => { const nq = q.trim().toLowerCase(); if (!nq) return true; return (`${t.name || ""} ${t.email || ""} ${t.key || ""}`).toLowerCase().includes(nq) })
+  useEffect(() => { getDirectory().then((d) => setDir(d?.people || [])).catch(() => setDir([])) }, [])
+  // MERGE hilos + directorio: los hilos aportan clave/foto/canales (para abrir y fusionar); el directorio aporta TODOS los nombres
+  // (contactos sin conversación reciente). Indexado por nombre normalizado → sin duplicar. Así se ven TODOS, no solo los recientes.
+  const nrm = (s: string) => (s || "").trim().toLowerCase()
+  const byName = new Map<string, Contact>()
+  for (const t of threads) {
+    if (t.key === "self" || (t as any).espacio || t.bucket === "spam") continue
+    byName.set(nrm(t.name), { name: t.name, key: t.key, photo: t.photo, channels: t.channels, group: t.group })
+  }
+  for (const d of (dir || [])) {
+    const k = nrm(d.name); if (!k) continue
+    const ex = byName.get(k)
+    if (!ex) byName.set(k, { name: d.name, role: d.role })            // contacto del vault sin hilo → igual aparece
+    else if (d.role && !ex.role) ex.role = d.role                     // ya hay hilo → le sumo el rol del vault
+  }
+  const people = [...byName.values()]
+    .filter((c) => { const nq = q.trim().toLowerCase(); if (!nq) return true; return (`${c.name || ""} ${c.key || ""}`).toLowerCase().includes(nq) })
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es"))
   const selThread = threads.find((t) => t.name === selName)
-  const openProfile = (t: Thread) => { setSelName(t.name); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
+  const openProfile = (t: { name: string }) => { setSelName(t.name); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
   const toggleSel = (key: string) => setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
   const exitSel = () => { setSelMode(false); setSelected(new Set()) }
   // claves seleccionadas EN EL ORDEN de la lista → target = la 1ra (la que se conserva), el resto se absorbe.
-  const selKeys = people.filter((t) => selected.has(t.key)).map((t) => t.key)
+  // solo contactos CON hilo (key) se pueden fusionar; los del vault sin conversación no tienen clave que mover.
+  const selKeys = people.filter((t) => t.key && selected.has(t.key)).map((t) => t.key!)
   const targetName = people.find((t) => t.key === selKeys[0])?.name || ""
   const doMerge = async () => {
     if (selKeys.length < 2 || merging) return
@@ -1426,10 +1466,10 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
           </div>
         ) : null}
         {people.map((t) => (
-          <div key={t.key} className={"ctrow" + (!selMode && selName === t.name ? " on" : "") + (selMode && selected.has(t.key) ? " sel" : "")} onClick={() => selMode ? toggleSel(t.key) : openProfile(t)}>
-            {selMode ? <input type="checkbox" className="ctcheck" checked={selected.has(t.key)} onChange={() => toggleSel(t.key)} onClick={(e) => e.stopPropagation()} /> : null}
+          <div key={t.key || t.name} className={"ctrow" + (!selMode && selName === t.name ? " on" : "") + (selMode && t.key && selected.has(t.key) ? " sel" : "") + (selMode && !t.key ? " dis" : "")} onClick={() => selMode ? (t.key && toggleSel(t.key)) : openProfile(t)}>
+            {selMode ? (t.key ? <input type="checkbox" className="ctcheck" checked={selected.has(t.key)} onChange={() => toggleSel(t.key!)} onClick={(e) => e.stopPropagation()} /> : <span className="ctcheck" style={{ opacity: .25 }} />) : null}
             <Avatar name={t.name} photo={t.photo} size={38} />
-            <div className="ctmid"><div className="ctname">{t.name}</div><div className="ctsub">{(t.channels || []).map((c) => CH[c]?.label || c).join(" · ") || (t.group ? "Grupo" : "")}</div></div>
+            <div className="ctmid"><div className="ctname">{t.name}</div><div className="ctsub">{(t.channels || []).map((c) => CH[c]?.label || c).join(" · ") || (t.group ? "Grupo" : t.role || "Contacto")}</div></div>
           </div>
         ))}
         {!people.length ? <div className="center" style={{ height: 140, color: "var(--muted)" }}>Sin contactos</div> : null}

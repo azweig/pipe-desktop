@@ -58,6 +58,8 @@ export const getThreadBefore = (key: string, before: number) => j("/api/thread?k
 // SYNC de texto completo (backfill grande, liviano): página de 800 hacia atrás → {items, oldestTs, hasMore}
 export const getThreadSync = (key: string, before = 0) => j("/api/thread/sync?key=" + encodeURIComponent(key) + "&before=" + (before || 0) + "&limit=800")
 export const getPerson = (name: string) => j("/api/person?name=" + encodeURIComponent(name))
+// DIRECTORIO COMPLETO de contactos (nodos del vault, no solo los hilos recientes) → { people:[{name,role,tags,initials}], companies:[{name,relation,tags}] }
+export const getDirectory = (): Promise<{ people?: any[]; companies?: any[] }> => j("/api/directory")
 // buscador CONTEXTUAL: busca dentro del CUERPO de los mensajes (no solo nombres) → [{key,who,ts,dir,text}]
 export const searchContent = (q: string) => j("/api/search?q=" + encodeURIComponent(q))
 // 🤖 buscador con IA (router): ⚡ facetas (0 tokens) o 🧠 RAG. Mismo endpoint que web/mobile.
