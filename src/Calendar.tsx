@@ -20,7 +20,7 @@ function layoutDay(list: any[]) {
   return s
 }
 
-export default function Calendar({ onOpenContact }: { onOpenContact?: (name: string) => void }) {
+export default function Calendar({ onOpenContact, onOpenMeeting }: { onOpenContact?: (name: string) => void; onOpenMeeting?: (id: string) => void }) {
   const [view, setView] = useState<"dia" | "laboral" | "semana" | "mes">("semana")
   const [date, setDate] = useState("")
   const [d, setD] = useState<any>(null)
@@ -149,6 +149,7 @@ export default function Calendar({ onOpenContact }: { onOpenContact?: (name: str
           ))}
           {ev.location && !ev.location.includes("Teams") && !ev.location.includes("Meet") && <div className="cdbox" style={{ marginTop: 14 }}>📍 {ev.location}</div>}
           {ev.prepReady && <div className="cdbox" style={{ marginTop: 14, color: "var(--accent-ink)" }}>✦ Preparación lista</div>}
+          {ev.id && onOpenMeeting && <button className="mbtn" style={{ marginTop: 16, width: "100%" }} onClick={() => onOpenMeeting(ev.id)}>Ver detalles de la reunión</button>}
         </div>
       )}
     </div>

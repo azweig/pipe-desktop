@@ -87,6 +87,33 @@ export const clipArchive = (id: string, on: boolean) => j("/api/clip/archive", {
 export const getGroups = () => j("/api/groups")
 export const getCalendar = (view = "semana", date = "") => j("/api/calendar?view=" + view + (date ? "&date=" + date : ""))
 export const getMeeting = (id: string) => j("/api/meeting?id=" + encodeURIComponent(id))
+// ── HOME (resumen del día) — mismo endpoint que web/mobile ──
+// → { brief:{text,audioSec}, kpis:[{cat,label,value,delta,goodUp,pct}], news:[{tag,title,source,ago,url,img}],
+//     agenda:[{time,dur,title,sub}], waiting:[{key,name,photo,work,reason,preview}], calls:[{key,name,missed,n,ts}],
+//     todos:[{id,text,name,due,thread}], promesas:[{id,text,name,due,thread}], objetivos:[{title,next,horizon,progress,target}], coach:{text,convKey}, generatedAt }
+export const getHome = () => j("/api/home")
+// audio TTS del brief: bytes autenticados → data URI (reusa hub_image, que devuelve data:<ct>;base64) → se pasa a un <audio>
+export const getHomeAudio = (): Promise<string> => hubImage("/api/home/audio")
+// 🧠 Jarvis / Ask-the-brain (IA REACTIVA: vos preguntás) → { answer }
+export const askBrain = (q: string): Promise<{ answer?: string; text?: string; reply?: string }> => j("/api/ask", { method: "POST", body: JSON.stringify({ q }) })
+// borrador de respuesta para un contacto (Home "Borrador IA") → { draft }
+export const replyDraft = (name: string, key: string): Promise<{ draft?: string; text?: string; reply?: string }> => j("/api/reply", { method: "POST", body: JSON.stringify({ name, key }) })
+// marcar una acción de la Home (to-do / promesa) como hecha
+export const actionDone = (kind: string, id: string) => j("/api/action/done", { method: "POST", body: JSON.stringify({ kind, id }) })
+// ── OBJETIVOS (metas + KPIs) ──
+export const getObjetivos = (): Promise<any[]> => j("/api/objetivos")
+export const getCompanies = (): Promise<any[]> => j("/api/companies")
+export const saveObjetivo = (o: any) => j("/api/objetivo", { method: "POST", body: JSON.stringify(o) })
+export const deleteObjetivo = (id: string) => j("/api/objetivo/delete", { method: "POST", body: JSON.stringify({ id }) })
+export const suggestObjetivos = (): Promise<any[]> => j("/api/objetivos/suggest")
+// ── ESPACIOS (agrupar contactos por reglas: email/dominio/teléfono/nombre) ──
+export const getEspacios = (): Promise<any[]> => j("/api/espacios")
+export const getEspacioView = (id: string) => j("/api/espacio/view?id=" + encodeURIComponent(id))
+export const saveEspacio = (b: { name: string; icon?: string; parent?: string | null }) => j("/api/espacio", { method: "POST", body: JSON.stringify(b) })
+export const addEspacioRule = (id: string, type: string, value: string) => j("/api/espacio/rule", { method: "POST", body: JSON.stringify({ id, type, value }) })
+export const delEspacioRule = (id: string, idx: number) => j("/api/espacio/rule/delete", { method: "POST", body: JSON.stringify({ id, idx }) })
+export const addEspacioException = (id: string, type: string, value: string) => j("/api/espacio/exception", { method: "POST", body: JSON.stringify({ id, type, value }) })
+export const delEspacioException = (id: string, idx: number) => j("/api/espacio/exception/delete", { method: "POST", body: JSON.stringify({ id, idx }) })
 export const getTargets = (key: string) => j("/api/thread/targets?key=" + encodeURIComponent(key))
 export const sendMsg = (key: string, text: string, t?: any, covert = false) =>
   j("/api/send", { method: "POST", body: JSON.stringify({ key, text, channel: t?.channel, target: t?.target, covert }) })

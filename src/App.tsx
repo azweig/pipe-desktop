@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, isDesktopApp, Thread, Msg } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -232,6 +232,10 @@ const CATS = [
   { id: "silenciados", ico: "🔕", label: "Silenciados", bucket: "" },
 ]
 
+type Pane = "home" | "mensajes" | "calendario" | "radar" | "objetivos" | "jarvis" | "notas" | "espacios" | "contactos"
+// historial de Jarvis a nivel de módulo → persiste al cambiar de pane y se puede sembrar desde la Home (igual que la web)
+let jarvisHistory: { role: "me" | "ai"; text: string }[] = []
+
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [threads, setThreads] = useState<Thread[]>([])
@@ -242,7 +246,8 @@ export default function App() {
   const [loadingThread, setLoadingThread] = useState(false)
   const [showCtx, setShowCtx] = useState(false)              // panel de contexto: oculto hasta que hacés click en el nombre
   const [chOff, setChOff] = useState<Set<string>>(new Set()) // canales apagados (filtro real de la lista)
-  const [pane, setPane] = useState<"mensajes" | "calendario" | "radar" | "notas" | "contactos">("mensajes") // vista del rail
+  const [pane, setPane] = useState<Pane>("home") // vista del rail — arranca en la Home (resumen del día)
+  const [meetingId, setMeetingId] = useState<string | null>(null) // detalle de reunión (modal) abierto desde agenda/calendario
   const [draft, setDraft] = useState("")
   const [targets, setTargets] = useState<any[]>([])
   const [threadAuto, setThreadAuto] = useState(false)         // ¿el contacto abierto tiene piloto automático?
@@ -665,10 +670,14 @@ export default function App() {
       {/* rail */}
       <div className="rail">
         <div className="brand" />
+        <button className={"tipright" + (pane === "home" ? " on" : "")} onClick={() => setPane("home")} data-tip="Inicio">🏠</button>
         <button className={"tipright" + (pane === "mensajes" ? " on" : "")} onClick={() => setPane("mensajes")} data-tip="Mensajes">💬</button>
         <button className={"tipright" + (pane === "calendario" ? " on" : "")} onClick={() => setPane("calendario")} data-tip="Calendario">🗓</button>
         <button className={"tipright" + (pane === "radar" ? " on" : "")} onClick={() => setPane("radar")} data-tip="Radar">✦</button>
+        <button className={"tipright" + (pane === "objetivos" ? " on" : "")} onClick={() => setPane("objetivos")} data-tip="Objetivos">🎯</button>
+        <button className={"tipright" + (pane === "jarvis" ? " on" : "")} onClick={() => setPane("jarvis")} data-tip="Jarvis">🧠</button>
         <button className={"tipright" + (pane === "notas" ? " on" : "")} onClick={() => setPane("notas")} data-tip="Notas">📄</button>
+        <button className={"tipright" + (pane === "espacios" ? " on" : "")} onClick={() => setPane("espacios")} data-tip="Espacios">◆</button>
         <button className={"tipright" + (pane === "contactos" ? " on" : "")} onClick={() => setPane("contactos")} data-tip="Contactos">👤</button>
         <div className="spacer" />
         <button className="me tipright" data-tip="Cuenta y ajustes" onClick={() => setAvatarMenu((v) => !v)}>AZ</button>
@@ -682,13 +691,17 @@ export default function App() {
         </div>
       </>)}
 
-      {pane === "calendario" ? <Calendar onOpenContact={(name) => {
+      {pane === "home" ? <Home onOpen={openByKey} onDraft={openWithDraft} onNav={setPane} onOpenMeeting={setMeetingId} />
+      : pane === "calendario" ? <Calendar onOpenContact={(name) => {
         const nn = name.trim().toLowerCase()
         const t = threads.find((x) => (x.name || "").trim().toLowerCase() === nn) || threads.find((x) => (x.name || "").toLowerCase().includes(nn.split(" ")[0]))
         setPane("mensajes"); if (t) open(t)
-      }} />
+      }} onOpenMeeting={setMeetingId} />
       : pane === "radar" ? <Radar onOpen={openByKey} onDraft={openWithDraft} />
+      : pane === "objetivos" ? <Objetivos onToast={setToast} />
+      : pane === "jarvis" ? <Jarvis onHome={() => setPane("home")} />
       : pane === "notas" ? <Notas />
+      : pane === "espacios" ? <Espacios onOpen={openByKey} />
       : pane === "contactos" ? <Contactos threads={threads} onOpen={openByKey} onToast={setToast} onMerged={refreshThreads} />
       : <>
 
@@ -865,10 +878,13 @@ export default function App() {
       {modal === "covert" && sel && <CovertModal sel={sel} onClose={() => setModal(null)} onSaved={(style: string | null) => { setThreadCovert(style); if (!style) setCovertOn(false); setModal(null) }} />}
       {modal === "waimport" && <WhatsAppImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); refreshThreads() }} />}
       {modal === "appolicy" && <AutopilotPolicyModal onClose={() => setModal(null)} onSaved={(msg: string) => { setToast(msg); setModal(null) }} />}
-      {modal === "settings" && <SettingsModal onClose={() => setModal(null)} onOpenAutopilot={() => setModal("appolicy")} onToast={(m: string) => setToast(m)} />}
       {undoArchive && <div className="toast"><span>🗄 Archivaste <b>{undoArchive.name}</b></span><button onClick={doUndoArchive}>Deshacer</button></div>}
-      {toast && <div className="toast"><span>{toast}</span></div>}
       </>}
+
+      {/* globales (visibles desde cualquier pane): configuración, detalle de reunión, avisos efímeros */}
+      {modal === "settings" && <SettingsModal onClose={() => setModal(null)} onOpenAutopilot={() => { setPane("mensajes"); setModal("appolicy") }} onToast={(m: string) => setToast(m)} />}
+      {meetingId && <MeetingModal id={meetingId} onClose={() => setMeetingId(null)} onOpenConv={(k, n) => { setMeetingId(null); openByKey(k, n) }} onOpenPerson={(n) => { setMeetingId(null); setPane("contactos"); void n }} />}
+      {toast && <div className="toast"><span>{toast}</span></div>}
     </div>
   )
 }
@@ -1538,6 +1554,394 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
         )}
       </div>
     </div>
+  )
+}
+
+// ── HOME: resumen del día (paridad con web viewHome/paintHome). GET /api/home → brief+audio, KPIs, news, agenda, "necesitan respuesta", to-dos, objetivos, coach. ──
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`
+const HZ_LABEL: Record<string, string> = { corto: "Corto", mediano: "Mediano", largo: "Largo", familiar: "Familia", otros: "Otros" }
+// botón "▶ Escuchar" del brief: baja el audio TTS autenticado (GET /api/home/audio → data URI vía hub_image) y lo reproduce en un <audio> nativo
+function HomeAudioBtn({ sec }: { sec: number }) {
+  const [state, setState] = useState<"idle" | "load" | "play">("idle")
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const toggle = async () => {
+    if (state === "play") { audioRef.current?.pause(); return }
+    if (audioRef.current) { audioRef.current.play().catch(() => {}); return }
+    setState("load")
+    const uri = await getHomeAudio().catch(() => "")
+    if (!uri) { setState("idle"); return }
+    const a = new Audio(uri); audioRef.current = a
+    a.onplay = () => setState("play"); a.onpause = () => setState((s) => s === "play" ? "idle" : s); a.onended = () => setState("idle")
+    a.play().catch(() => setState("idle"))
+  }
+  return <button className="hb-listen" onClick={toggle}>{state === "load" ? "Cargando…" : state === "play" ? "⏸ Pausar" : `▶ Escuchar · ${mmss(sec)}`}</button>
+}
+function Home({ onOpen, onDraft, onNav, onOpenMeeting }: { onOpen: (k: string, n?: string) => void; onDraft: (k: string, n?: string) => void; onNav: (p: Pane) => void; onOpenMeeting: (id: string) => void }) {
+  const [d, setD] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [name, setName] = useState("")
+  const [done, setDone] = useState<Set<string>>(new Set())   // items despachados (necesitan respuesta / to-dos / promesas)
+  const [q, setQ] = useState(""); const [asking, setAsking] = useState(false)
+  const [ans, setAns] = useState<{ q: string; a: string } | null>(null)
+  useEffect(() => {
+    getHome().then((r) => setD(r || {})).catch(() => setD({})).finally(() => setLoading(false))
+    getHubConfig().then((h) => setName(((h?.ownerName || "").trim().split(/\s+/)[0]) || "")).catch(() => {})
+  }, [])
+  const hr = new Date().getHours()
+  const saludo = hr < 12 ? "Buenos días" : hr < 19 ? "Buenas tardes" : "Buenas noches"
+  const fecha = new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" }).toUpperCase()
+  const ask = async () => {
+    const qq = q.trim(); if (!qq || asking) return
+    setAsking(true); setAns({ q: qq, a: "" })
+    const r = await askBrain(qq).catch(() => null); setAsking(false)
+    setAns({ q: qq, a: (r && (r.answer || r.text || r.reply)) || "No pude responder eso ahora." }); setQ("")
+  }
+  const seguirJarvis = () => { if (ans) jarvisHistory.push({ role: "me", text: ans.q }, { role: "ai", text: ans.a }); onNav("jarvis") }
+  const dismiss = (k: string) => setDone((s) => new Set(s).add(k))
+  const waitDone = (w: any) => { dismiss("w:" + w.key); markSeen(w.key, Date.now()).catch(() => {}) }
+  const actDone = (kind: string, id: string, pref: string) => { dismiss(pref + ":" + id); actionDone(kind, id).catch(() => {}) }
+  if (loading) return <div className="pane"><div className="center"><div className="spin" /></div></div>
+  const b = d?.brief || {}, kpis = d?.kpis || [], news = d?.news || [], ag = d?.agenda || [], coach = d?.coach
+  const waiting = (d?.waiting || []).filter((w: any) => !done.has("w:" + w.key))
+  const calls = d?.calls || [], todos = (d?.todos || []).filter((t: any) => !done.has("t:" + t.id))
+  const promesas = (d?.promesas || []).filter((p: any) => !done.has("p:" + p.id)), objetivos = d?.objetivos || []
+  const kpiCard = (k: any, i: number) => {
+    const up = k.delta > 0, good = k.delta == null ? true : (up === k.goodUp)
+    return (
+      <div key={i} className="hb-kpi" onClick={() => onNav("objetivos")}>
+        <div className="hb-kpi-cat">{k.cat}</div><div className="hb-kpi-label">{k.label}</div>
+        <div className="hb-kpi-val">{k.value} {k.delta != null ? <span className={"hb-kpi-delta " + (good ? "good" : "bad")}>{up ? "▲" : "▼"} {Math.abs(k.delta)}%</span> : null}</div>
+        <div className="hb-kpi-bar"><i style={{ width: (k.pct || 0) + "%", background: good ? "var(--accent)" : "#e0553e" }} /></div>
+      </div>
+    )
+  }
+  const actRow = (kind: string, pref: string, a: any) => (
+    <div key={pref + a.id} className="hb-act">
+      <button className="hb-act-chk" onClick={() => actDone(kind, a.id, pref)} aria-label="Hecho" />
+      <div style={{ flex: 1, minWidth: 0 }}><div className="hb-act-txt">{a.text}</div><div className="hb-act-sub">{a.name || ""}{a.due ? " · " + a.due : ""}</div></div>
+      {a.thread ? <span className="hb-link" onClick={() => onOpen(a.thread, a.name)}>ver</span> : null}
+    </div>
+  )
+  return (
+    <div className="pane">
+      <div className="panebody home">
+        <div className="hb-head"><div><div className="hb-date">{fecha}</div><h1 className="hb-greet">{saludo},{name ? <><br />{name}</> : ""}</h1></div></div>
+
+        {/* Jarvis inline (IA reactiva: vos preguntás) */}
+        <div className="hb-askhead">🧠 Jarvis <span>— preguntale lo que sea sobre tus datos</span></div>
+        <div className="hb-ask">
+          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ask() }} placeholder="ej: ¿quién me debe? · resumime a Ana · ¿qué quedó con la empresa X?" />
+          <button onClick={ask} aria-label="Preguntar">⌕</button>
+        </div>
+        {ans ? <div className="hb-ask-out">{asking ? <span style={{ color: "var(--muted)" }}>Pensando…</span> : <><Linkified text={ans.a} /><div style={{ marginTop: 8 }}><span className="hb-link" onClick={seguirJarvis}>Seguir conversando en Jarvis →</span></div></>}</div> : null}
+
+        {!d?.generatedAt ? <div className="hb-empty" style={{ textAlign: "center", margin: "10px 0" }}>Generando tu resumen del día…</div> : null}
+
+        {b.text ? (
+          <div className="hb-brief">
+            <div className="hb-eyebrow"><span>✦</span>Tu día en breve</div>
+            <div className="hb-brief-txt"><Linkified text={b.text} /></div>
+            {b.audioSec ? <div className="hb-brief-row"><HomeAudioBtn sec={b.audioSec} /></div> : null}
+          </div>
+        ) : null}
+
+        {waiting.length ? (
+          <div className="hb-card">
+            <div className="hb-card-head"><div className="hb-card-title">↩️ Necesitan respuesta <span className="hb-badge">{waiting.length}</span></div></div>
+            {waiting.map((w: any, i: number) => (
+              <div key={w.key || i} className="hb-wait">
+                <div className="hb-wait-top"><Avatar name={w.name} photo={w.photo} size={38} /><div style={{ flex: 1, minWidth: 0 }}><div className="hb-wait-name">{w.name}{w.work ? <span className="hb-tag">trabajo</span> : null}<span className="hb-wait-when"> · {w.reason}</span></div><div className="hb-wait-prev">{w.preview || ""}</div></div></div>
+                <div className="hb-wait-acts"><button onClick={() => onOpen(w.key, w.name)}>✍️ Responder</button><button onClick={() => onDraft(w.key, w.name)}>✨ Borrador IA</button><button onClick={() => waitDone(w)}>✓ Listo</button></div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {calls.length ? (
+          <div className="hb-card">
+            <div className="hb-card-head"><div className="hb-card-title">📞 Llamadas <span className="hb-badge">{calls.length}</span></div></div>
+            {calls.map((c: any, i: number) => (
+              <div key={c.key || i} className="hb-band-row" onClick={() => onOpen(c.key, c.name)}><Avatar name={c.name} size={38} /><div style={{ flex: 1, minWidth: 0 }}><div className="hb-band-name">{c.name}</div><div className="hb-band-prev">{c.missed ? "Llamada perdida" : "Te llamó"}{c.n > 1 ? ` · ${c.n}×` : ""} · {ago(c.ts)}</div></div><span className="hb-callret">Devolver</span></div>
+            ))}
+          </div>
+        ) : null}
+
+        {todos.length ? <div className="hb-card"><div className="hb-card-head"><div className="hb-card-title">✅ Por hacer <span className="hb-badge">{todos.length}</span></div></div>{todos.map((t: any) => actRow("todo", "t", t))}</div> : null}
+        {promesas.length ? <div className="hb-card"><div className="hb-card-head"><div className="hb-card-title">🤝 Prometiste <span className="hb-badge">{promesas.length}</span></div></div>{promesas.map((p: any) => actRow("prom", "p", p))}</div> : null}
+
+        <div className="hb-card">
+          <div className="hb-card-head spread"><div className="hb-card-title">📅 Agenda de hoy</div><span className="hb-link" onClick={() => onNav("calendario")}>Ver semana</span></div>
+          {ag.length ? ag.map((e: any, i: number) => (
+            <div key={i} className={"hb-ag-row" + (e.id || e.key ? " tap" : "")} onClick={() => (e.id || e.key) && onOpenMeeting(e.id || e.key)}>
+              <div className="hb-ag-time"><b>{e.time}</b>{e.dur ? <span>{e.dur}</span> : null}</div>
+              <div style={{ flex: 1 }}><div className="hb-ag-title">{e.title}</div>{e.sub ? <div className="hb-ag-sub">{e.sub}</div> : null}</div>
+            </div>
+          )) : <div className="hb-empty">Sin eventos hoy 🎉</div>}
+        </div>
+
+        {objetivos.length ? (
+          <div className="hb-card">
+            <div className="hb-card-head spread"><div className="hb-card-title">🎯 Tus objetivos</div><span className="hb-link" onClick={() => onNav("objetivos")}>Ver</span></div>
+            {objetivos.map((o: any, i: number) => { const pc = (o.progress != null && o.target) ? Math.min(100, Math.round(o.progress / o.target * 100)) : null
+              return <div key={i} className="hb-obj" onClick={() => onNav("objetivos")}><div style={{ flex: 1, minWidth: 0 }}><div className="hb-obj-title">{o.title || ""}</div>{o.next ? <div className="hb-obj-next">→ {o.next}</div> : null}</div>{o.horizon ? <span className="hb-obj-hz">{HZ_LABEL[o.horizon] || o.horizon}</span> : null}{pc != null ? <span className="hb-obj-pc">{pc}%</span> : null}</div> })}
+          </div>
+        ) : null}
+
+        {kpis.length ? <><div className="hb-section-title" onClick={() => onNav("objetivos")} style={{ cursor: "pointer" }}>📊 Tus KPIs<span className="hb-link" style={{ marginLeft: "auto" }}>Configurar ›</span></div><div className="hb-kpis">{kpis.map(kpiCard)}</div></> : null}
+
+        {news.length ? (
+          <div className="hb-card">
+            <div className="hb-card-head spread"><div className="hb-card-title">📰 Para vos</div><span className="hb-link" onClick={() => onNav("radar")}>Más</span></div>
+            {news.map((n: any, i: number) => (
+              <div key={i} className="hb-news" onClick={() => n.url && openExternal(n.url)}><div className="hb-news-txt"><div className="hb-news-tag">{n.tag}</div><div className="hb-news-title">{n.title}</div><div className="hb-news-src">{n.source || ""}{n.ago ? " · " + n.ago : ""}</div></div><div className="hb-news-img" style={n.img ? { backgroundImage: `url(${n.img})` } : undefined} /></div>
+            ))}
+          </div>
+        ) : null}
+
+        {coach ? <div className="hb-coach"><div className="hb-eyebrow light"><span>◎</span>Coach · sugerencia</div><div className="hb-coach-txt">{coach.text}</div><button className="hb-coach-btn" onClick={() => coach.convKey ? onOpen(coach.convKey) : onNav("radar")}>Ver sugerencia</button></div> : null}
+      </div>
+    </div>
+  )
+}
+
+// ── OBJETIVOS: metas/KPIs por horizonte (paridad con web viewObjetivos). /api/objetivos + /api/companies + /api/objetivo(+/delete) + /api/objetivos/suggest ──
+const OBJ_HZ: [string, string][] = [["corto", "🎯 Corto plazo"], ["mediano", "📈 Mediano plazo"], ["largo", "🚀 Largo plazo"], ["familiar", "❤️ Familia"], ["otros", "📌 Otros"]]
+function ObjetivoEditor({ obj, comps, onSave, onClose }: { obj: any; comps: any[]; onSave: (o: any) => void; onClose: () => void }) {
+  const [f, setF] = useState({ title: obj.title || "", current: obj.current ?? 0, target: obj.target ?? 5, unit: obj.unit || "", horizon: obj.horizon || "corto", scope: obj.scope || "personal" })
+  const set = (k: string, v: any) => setF((s) => ({ ...s, [k]: v }))
+  const save = () => { if (!f.title.trim()) return; onSave({ id: obj.id || undefined, title: f.title.trim(), current: +f.current || 0, target: +f.target || 0, unit: f.unit.trim(), horizon: f.horizon, scope: f.scope, source: "user" }) }
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
+      <h3>{obj.id ? "Editar" : "Nuevo"} objetivo</h3>
+      <input className="modalinput" placeholder="Título (ej: 5 clientes nuevos)" value={f.title} onChange={(e) => set("title", e.target.value)} />
+      <div className="modalrow"><input className="modalinput" type="number" placeholder="Actual" value={f.current} onChange={(e) => set("current", e.target.value)} /><input className="modalinput" type="number" placeholder="Meta" value={f.target} onChange={(e) => set("target", e.target.value)} /></div>
+      <input className="modalinput" placeholder="Unidad (clientes, %, noches/semana…)" value={f.unit} onChange={(e) => set("unit", e.target.value)} />
+      <select className="modalinput" value={f.horizon} onChange={(e) => set("horizon", e.target.value)}>{OBJ_HZ.filter(([k]) => k !== "otros").map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+      <select className="modalinput" value={f.scope} onChange={(e) => set("scope", e.target.value)}><option value="personal">Personal</option>{comps.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+      <div className="modalrow"><button className="mbtn" onClick={save}>Guardar</button><button className="mbtn ghost" onClick={onClose}>Cancelar</button></div>
+    </div></div>
+  )
+}
+function Objetivos({ onToast }: { onToast: (m: string) => void }) {
+  const [objs, setObjs] = useState<any[]>([]); const [comps, setComps] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [edit, setEdit] = useState<any | null>(null)
+  const [sug, setSug] = useState<any[] | null>(null); const [sugBusy, setSugBusy] = useState(false)
+  const load = () => Promise.all([getObjetivos().catch(() => []), getCompanies().catch(() => [])]).then(([o, c]) => { setObjs(o || []); setComps(c || []) }).finally(() => setLoading(false))
+  useEffect(() => { load() }, [])
+  const label = (o: any) => { const co = comps.find((x) => x.id === o.scope || x.name === o.scope); return co ? co.name : "Personal" }
+  const colr = (o: any) => { const co = comps.find((x) => x.id === o.scope || x.name === o.scope); return co ? co.color : "#8bb0a2" }
+  const del = async (id: string) => { setObjs((cur) => cur.filter((o) => o.id !== id)); await deleteObjetivo(id).catch(() => {}) }
+  const save = async (o: any) => { setEdit(null); await saveObjetivo(o).catch(() => {}); onToast("✓ Guardado"); load() }
+  const doSuggest = async () => { setSugBusy(true); const s = await suggestObjetivos().catch(() => []); setSugBusy(false); setSug(s || []) }
+  const addSug = async (o: any) => { setSug((s) => (s || []).filter((x) => x !== o)); await saveObjetivo({ ...o, source: "ai", current: 0 }).catch(() => {}); onToast("✓ Objetivo agregado"); load() }
+  const row = (o: any) => { const pct = Math.min(100, Math.round(100 * (o.current || 0) / (o.target || 1)))
+    return (
+      <div key={o.id} className="objcard">
+        <div className="spread"><div><span className="objscope" style={{ background: colr(o) + "22", color: colr(o) }}>{label(o)}</span> <b>{o.title}</b>{o.source === "ai" ? <span className="objai"> · sugerido</span> : null}</div><b>{o.current || 0}/{o.target || 0}</b></div>
+        <div className="objbar"><i style={{ width: pct + "%", background: colr(o) }} /></div>
+        <div className="objacts"><span className="objedit" onClick={() => setEdit(o)}>Editar</span><span className="objdel" onClick={() => del(o.id)}>Borrar</span></div>
+      </div>
+    )
+  }
+  return (
+    <div className="pane">
+      <div className="panehead"><h1>Objetivos</h1><span className="panesub">KPIs personales y de tus empresas, por horizonte</span><button className="mbtn" style={{ flex: "0 0 auto", padding: "8px 14px", marginLeft: "auto" }} onClick={() => setEdit({})}>+ Nuevo</button></div>
+      <div className="panebody">
+        {loading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div> : (<>
+          {OBJ_HZ.map(([k, lbl]) => { const g = objs.filter((o) => (o.horizon || "otros") === k); return g.length ? <div key={k}><div className="rsec">{lbl}</div>{g.map(row)}</div> : null })}
+          {!objs.length ? <div className="center" style={{ height: 120, color: "var(--muted)" }}>Todavía no cargaste objetivos.</div> : null}
+          <button className="mbtn ghost" style={{ width: "100%", marginTop: 14 }} onClick={doSuggest} disabled={sugBusy}>{sugBusy ? "Jarvis está pensando…" : "✦ Que Jarvis sugiera objetivos"}</button>
+        </>)}
+      </div>
+      {edit && <ObjetivoEditor obj={edit} comps={comps} onSave={save} onClose={() => setEdit(null)} />}
+      {sug && (
+        <div className="modalbg" onClick={() => setSug(null)}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
+          <h3>Sugerencias de Jarvis</h3><p className="modalsub">Tocá para agregar los que te sirvan.</p>
+          {sug.length ? sug.map((o, i) => (
+            <div key={i} className="sendopt spread" onClick={() => addSug(o)}><div><div className="sok" style={{ color: "var(--ink)", fontWeight: 700 }}>{o.title}</div><div className="sot" style={{ fontSize: 12, color: "var(--muted)" }}>{o.scope || "personal"} · meta {o.target || ""} {o.unit || ""}</div></div><span style={{ color: "var(--accent)", fontSize: 20 }}>+</span></div>
+          )) : <div className="modalsub">No pude generar sugerencias ahora.</div>}
+          <div className="modalrow" style={{ marginTop: 12 }}><button className="mbtn ghost" onClick={() => setSug(null)}>Cerrar</button></div>
+        </div></div>
+      )}
+    </div>
+  )
+}
+
+// ── JARVIS: chat "preguntale al cerebro" (IA reactiva). POST /api/ask. Voz vía STT (mismo backend que el dictado). ──
+function Jarvis({ onHome }: { onHome: () => void }) {
+  const [, force] = useState(0)
+  const [q, setQ] = useState(""); const [busy, setBusy] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const recRef = useRef<{ rec: MediaRecorder; chunks: Blob[]; mime: string } | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const scroll = () => setTimeout(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight }, 60)
+  useEffect(() => { scroll() }, [])
+  const ask = async (text?: string) => {
+    const qq = (text || q).trim(); if (!qq || busy) return
+    jarvisHistory.push({ role: "me", text: qq }); setQ(""); force((n) => n + 1); setBusy(true); scroll()
+    const r = await askBrain(qq).catch(() => null); setBusy(false)
+    jarvisHistory.push({ role: "ai", text: (r && (r.answer || r.text || r.reply)) || "No pude responder ahora." }); force((n) => n + 1); scroll()
+  }
+  const startVoice = async () => {
+    if (recording) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm"
+      const rec = new MediaRecorder(stream, { mimeType: mime }); const chunks: Blob[] = []
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data) }
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop()); setRecording(false); recRef.current = null
+        const b64 = await blobToB64(new Blob(chunks, { type: mime })).catch(() => "")
+        if (!b64) return
+        setBusy(true); const r = await sttB64(b64, mime.split(";")[0]).catch(() => null); setBusy(false)
+        const t = (r?.text || "").trim(); if (t) ask(t); else alert("No pude entender el audio.")
+      }
+      recRef.current = { rec, chunks, mime }; rec.start(); setRecording(true)
+    } catch { alert("Necesito permiso de micrófono.") }
+  }
+  const stopVoice = () => recRef.current?.rec.stop()
+  return (
+    <div className="pane">
+      <div className="panehead"><h1>🧠 Jarvis</h1><span className="panesub">Vos preguntás, él busca en tus datos · privado en tu server</span><button className="mbtn ghost" style={{ marginLeft: "auto" }} onClick={onHome}>‹ Inicio</button></div>
+      <div className="jvbody" ref={bodyRef}>
+        {!jarvisHistory.length ? <div className="center" style={{ color: "var(--muted)", textAlign: "center", padding: 30 }}>Preguntame lo que quieras sobre tus mensajes, gente, reuniones…<br /><br />Ej: "¿quién me debe plata?", "resumime lo de la empresa X"</div>
+          : jarvisHistory.map((m, i) => <div key={i} className={"jvmsg " + (m.role === "me" ? "me" : "ai")}><Linkified text={m.text} /></div>)}
+        {busy ? <div className="jvmsg ai"><span style={{ color: "var(--muted)" }}>pensando…</span></div> : null}
+      </div>
+      <div className="jvcompose">
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ask() }} placeholder="Pregúntale a Jarvis…" />
+        <button className={"clip" + (recording ? " rec" : "")} data-tip={recording ? "Detener y transcribir" : "Hablar con Jarvis"} onClick={() => recording ? stopVoice() : startVoice()} style={{ color: recording ? "#e2483d" : "var(--accent)" }}>{recording ? "⏹" : "🎤"}</button>
+        <button className="send" onClick={() => ask()} disabled={!q.trim()}>➤</button>
+      </div>
+    </div>
+  )
+}
+
+// ── ESPACIOS: crear/editar agrupaciones por reglas (email/dominio/teléfono/nombre) + excepciones + subespacios. /api/espacios · /api/espacio* ──
+const RULE_ICON: Record<string, string> = { email: "✉️", domain: "🌐", phone: "📱", name: "👤" }
+const RULE_TYPES: [string, string][] = [["email", "Correo"], ["domain", "Dominio"], ["phone", "Teléfono"], ["name", "Nombre"]]
+const RULE_PH: Record<string, string> = { email: "profesor@colegio.edu.pe", domain: "colegio.edu.pe", phone: "51999888777", name: "Nombre exacto del contacto" }
+const ruleText = (r: any) => `${RULE_ICON[r.type] || "•"} ${r.type === "domain" ? "*@" + r.value : r.value}`
+function EspacioForm({ title, sub, onSubmit, onClose, isRule }: { title: string; sub: string; onSubmit: (type: string, value: string) => void; onClose: () => void; isRule: boolean }) {
+  const [type, setType] = useState("email"); const [value, setValue] = useState("")
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
+      <h3>{title}</h3><p className="modalsub">{sub}</p>
+      <div className="modalrow" style={{ flexWrap: "wrap", marginBottom: 10 }}>{RULE_TYPES.map(([t, l]) => <button key={t} className={"mbtn" + (type === t ? "" : " ghost")} style={{ flex: 1, padding: "8px 4px", fontSize: 12 }} onClick={() => setType(t)}>{RULE_ICON[t]} {l}</button>)}</div>
+      <input className="modalinput" placeholder={RULE_PH[type]} value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+      <div className="modalrow"><button className="mbtn" onClick={() => value.trim() && onSubmit(type, value.trim())}>{isRule ? "Agregar regla" : "Agregar excepción"}</button><button className="mbtn ghost" onClick={onClose}>Cancelar</button></div>
+    </div></div>
+  )
+}
+function EspacioCreate({ parent, onCreate, onClose }: { parent: string | null; onCreate: (name: string, icon: string) => void; onClose: () => void }) {
+  const [name, setName] = useState(""); const [icon, setIcon] = useState("")
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
+      <h3>{parent ? "Nuevo subespacio" : "Nuevo espacio"}</h3>
+      <input className="modalinput" placeholder="Nombre (ej: Trabajo, Familia, Clientes)" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      <input className="modalinput" placeholder="Emoji (opcional, ej: 🎓)" value={icon} onChange={(e) => setIcon(e.target.value)} />
+      <div className="modalrow"><button className="mbtn" onClick={() => name.trim() && onCreate(name.trim(), icon.trim())}>Crear</button><button className="mbtn ghost" onClick={onClose}>Cancelar</button></div>
+    </div></div>
+  )
+}
+function Espacios({ onOpen }: { onOpen: (k: string, n?: string) => void }) {
+  const [list, setList] = useState<any[] | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<any>(null); const [dLoading, setDLoading] = useState(false)
+  const [modal, setModal] = useState<any>(null) // {kind:"new"|"sub"|"rule"|"exc", parent?}
+  const loadList = () => getEspacios().then((l) => setList(l || [])).catch(() => setList([]))
+  const loadDetail = (id: string) => { setDLoading(true); getEspacioView(id).then((d) => setDetail(d || {})).catch(() => setDetail({})).finally(() => setDLoading(false)) }
+  useEffect(() => { loadList() }, [])
+  useEffect(() => { if (openId) loadDetail(openId) }, [openId])
+  const createEsp = async (name: string, icon: string, parent: string | null) => { setModal(null); await saveEspacio({ name, icon, parent }).catch(() => {}); if (parent && openId) loadDetail(openId); else loadList() }
+  const addRule = async (type: string, value: string) => { if (!openId) return; setModal(null); const r = await addEspacioRule(openId, type, value).catch(() => null); if (r && r.error) alert(r.error); loadDetail(openId) }
+  const addExc = async (type: string, value: string) => { if (!openId) return; setModal(null); const r = await addEspacioException(openId, type, value).catch(() => null); if (r && r.error) alert(r.error); loadDetail(openId) }
+  const delRule = async (idx: number) => { if (!openId) return; await delEspacioRule(openId, idx).catch(() => {}); loadDetail(openId) }
+  const delExc = async (idx: number) => { if (!openId) return; await delEspacioException(openId, idx).catch(() => {}); loadDetail(openId) }
+
+  if (openId) {
+    const d = detail || {}
+    return (
+      <div className="pane">
+        <div className="panehead"><button className="mbtn ghost" onClick={() => { setOpenId(null); setDetail(null) }}>‹ Espacios</button><h1 style={{ fontSize: 18 }}>{d.icon || "◆"} {d.name || "Espacio"}</h1><span className="panesub">{d.count || 0} mensajes</span></div>
+        {dLoading && !detail ? <div className="center" style={{ height: 160 }}><div className="spin" /></div> : (
+          <div className="panebody">
+            <div className="spread" style={{ marginBottom: 8 }}><b>Reglas</b><button className="mbtn" style={{ flex: "0 0 auto", padding: "6px 12px" }} onClick={() => setModal({ kind: "rule" })}>+ Regla</button></div>
+            <div className="panesub" style={{ marginBottom: 10 }}>Quién entra a este espacio: por correo, dominio (<b>*@colegio.edu.pe</b>), teléfono o nombre.</div>
+            <div className="chiprow">{(d.rules || []).length ? d.rules.map((r: any, i: number) => <span key={i} className="espchip">{ruleText(r)}<span onClick={() => delRule(i)} className="espx">✕</span></span>) : <span className="panesub">Todavía sin reglas.</span>}</div>
+            <div className="spread" style={{ margin: "18px 0 8px" }}><b>Excepciones</b><button className="mbtn ghost" style={{ flex: "0 0 auto", padding: "6px 12px" }} onClick={() => setModal({ kind: "exc" })}>+ Excepción</button></div>
+            <div className="panesub" style={{ marginBottom: 10 }}>Quién queda <b>afuera</b> aunque cumpla una regla.</div>
+            <div className="chiprow">{(d.exceptions || []).length ? d.exceptions.map((r: any, i: number) => <span key={i} className="espchip exc">🚫 {ruleText(r)}<span onClick={() => delExc(i)} className="espx">✕</span></span>) : <span className="panesub">Sin excepciones.</span>}</div>
+            {(d.children || []).length ? <><div className="rsec">Subespacios</div>{d.children.map((c: any) => <div key={c.id} className="rcard" onClick={() => setOpenId(c.id)}><div className="objscope" style={{ background: "var(--panel2)" }}>{c.icon || "◆"}</div><div className="rcbody"><div className="rcname">{c.name}</div><div className="rctext">{c.members} regla{c.members === 1 ? "" : "s"}</div></div></div>)}</> : null}
+            <div className="rsec">Mensajes recientes</div>
+            {(d.recent || []).length ? d.recent.map((m: any, i: number) => (
+              <div key={i} className={"rcard" + (m.thread ? "" : " col")} onClick={() => m.thread && onOpen(m.thread, m.name)}><Avatar name={m.name || "?"} size={34} /><div className="rcbody"><div className="rcname">{m.name || "—"} <span style={{ color: "var(--muted2)", fontWeight: 400, fontSize: 11 }}>· {ago(m.ts)}</span></div><div className="rctext">{m.dir === "out" ? "→ " : ""}{m.text}</div></div></div>
+            )) : <div className="panesub">Sin mensajes que matcheen las reglas todavía.</div>}
+            <button className="mbtn ghost" style={{ width: "100%", marginTop: 16 }} onClick={() => setModal({ kind: "sub" })}>+ Subespacio</button>
+          </div>
+        )}
+        {modal?.kind === "rule" && <EspacioForm isRule title="Nueva regla" sub="Los mensajes que matcheen entran al espacio." onSubmit={addRule} onClose={() => setModal(null)} />}
+        {modal?.kind === "exc" && <EspacioForm isRule={false} title="Nueva excepción" sub="Lo que matchee queda AFUERA del espacio." onSubmit={addExc} onClose={() => setModal(null)} />}
+        {modal?.kind === "sub" && <EspacioCreate parent={openId} onCreate={(n, ic) => createEsp(n, ic, openId)} onClose={() => setModal(null)} />}
+      </div>
+    )
+  }
+  const roots = (list || []).filter((e) => !e.parent)
+  return (
+    <div className="pane">
+      <div className="panehead"><h1>Espacios</h1><span className="panesub">Agrupá contactos por reglas — cada espacio aparece como un contacto en tu bandeja</span><button className="mbtn" style={{ flex: "0 0 auto", padding: "8px 14px", marginLeft: "auto" }} onClick={() => setModal({ kind: "new" })}>+ Nuevo</button></div>
+      <div className="panebody">
+        {list == null ? <div className="center" style={{ height: 160 }}><div className="spin" /></div>
+          : roots.length ? roots.map((e) => <div key={e.id} className="rcard" onClick={() => setOpenId(e.id)}><div className="objscope" style={{ background: "var(--panel2)", fontSize: 18 }}>{e.icon || "◆"}</div><div className="rcbody"><div className="rcname" style={{ fontSize: 15 }}>{e.name}</div><div className="rctext">Espacio · {(e.members || []).length} personas</div></div><span style={{ color: "var(--muted2)" }}>›</span></div>)
+          : <div className="center" style={{ height: 120, color: "var(--muted)" }}>Todavía no creaste espacios.</div>}
+      </div>
+      {modal?.kind === "new" && <EspacioCreate parent={null} onCreate={(n, ic) => createEsp(n, ic, null)} onClose={() => setModal(null)} />}
+    </div>
+  )
+}
+
+// ── DETALLE DE REUNIÓN (modal): asistentes/RSVP + unirse + objetivo + preparación. GET /api/meeting?id= (paridad con web viewMeeting). ──
+function MeetingModal({ id, onClose, onOpenConv, onOpenPerson }: { id: string; onClose: () => void; onOpenConv: (k: string, n?: string) => void; onOpenPerson: (n: string) => void }) {
+  const [m, setM] = useState<any>(null); const [loading, setLoading] = useState(true)
+  useEffect(() => { getMeeting(id).then((x) => setM(x || {})).catch(() => setM({})).finally(() => setLoading(false)) }, [id])
+  const stIcon = (s: string) => s === "yes" ? <span className="att-st ok">✓</span> : s === "no" ? <span className="att-st no">✕</span> : s === "maybe" ? <span className="att-st may">?</span> : null
+  const c = m?.color || "#6366f1"
+  const att = m?.attendees || [], conf = att.filter((a: any) => a.status === "yes").length
+  const dur = m?.durationMin ? (m.durationMin >= 60 ? (m.durationMin / 60).toFixed(m.durationMin % 60 ? 1 : 0) + " h" : m.durationMin + " min") : ""
+  const meetLabel = /meet/i.test(m?.url || "") ? "Google Meet" : /teams/i.test(m?.url || "") ? "Microsoft Teams" : /zoom/i.test(m?.url || "") ? "Zoom" : "la reunión"
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: "94vw", maxHeight: "88vh", overflow: "auto", padding: 0 }}>
+      {loading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div> : (<>
+        <div className="mtg-hero" style={{ background: `linear-gradient(135deg,${c},${c}dd)` }}>
+          <div className="spread"><button className="mtg-back" onClick={onClose}>✕</button>{m.url ? <a className="mtg-hero-ic" onClick={(e) => { e.preventDefault(); openExternal(m.url) }}>📹</a> : null}</div>
+          <div className="mtg-tags">{m.objetivo ? <span className="mtg-tag hi">🎯 {(m.objetivo.title || "").slice(0, 24)}</span> : null}<span className="mtg-tag">{m.catLabel || "Evento"}</span></div>
+          <h1 className="mtg-title">{m.title || "Reunión"}</h1>
+          <div className="mtg-when">🕐 {m.dayLabel || ""}{m.t1 ? " · " + m.t1 : ""}{m.t2 ? "–" + m.t2 : ""}{dur ? " · " + dur : ""}</div>
+        </div>
+        <div style={{ padding: 16 }}>
+          {m.url ? <a className="mtg-join" onClick={(e) => { e.preventDefault(); openExternal(m.url) }}>📹 Unirse a {meetLabel}</a> : null}
+          {m.objetivo ? (
+            <div className="mtg-card"><div className="spread"><div className="hb-eyebrow" style={{ margin: 0 }}>◈ Aporta a este objetivo</div><span style={{ fontWeight: 800, color: "var(--accent-ink)" }}>{m.objetivo.pct || 0}%</span></div>
+              <div style={{ fontWeight: 700, margin: "6px 0" }}>{m.objetivo.title || ""}</div><div className="objbar"><i style={{ width: (m.objetivo.pct || 0) + "%", background: "var(--accent)" }} /></div>
+              <div className="mtg-2"><div><div className="mtg-kv-l">Avance</div><div className="mtg-kv-v">{m.objetivo.current || 0}/{m.objetivo.target || 0}{m.objetivo.unit ? " " + m.objetivo.unit : ""}</div></div><div><div className="mtg-kv-l">Ámbito</div><div className="mtg-kv-v">{m.objetivo.scope || "—"}</div></div></div></div>
+          ) : null}
+          {m.prep ? <div className="mtg-card"><div className="hb-eyebrow">✦ Preparación</div><div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--ink)" }}>{m.prep}</div>{(m.linked || []).length ? <div className="modalrow" style={{ marginTop: 10 }}>{m.linked.slice(0, 2).map((l: any, i: number) => <button key={i} className="mbtn ghost" onClick={() => onOpenConv(l.thread || "", (l.from || "").split(" ")[0])}>{(l.from || "hilo").split(" ")[0]} ›</button>)}</div> : null}</div> : null}
+          {m.desc ? <div className="mtg-card"><div className="hb-eyebrow">Descripción</div><div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--ink)" }}>{m.desc}</div>{(m.attachments || []).map((f: any, i: number) => <div key={i} className="mtg-file">📄 {f.name || f}{f.size ? <span style={{ marginLeft: "auto", color: "var(--muted2)" }}>{f.size}</span> : null}</div>)}</div> : null}
+          {att.length ? (
+            <div className="mtg-card"><div className="spread" style={{ marginBottom: 10 }}><div className="hb-eyebrow" style={{ margin: 0 }}>Asistentes · {att.length}</div>{conf ? <span className="att-conf">{conf} confirmado{conf === 1 ? "" : "s"}</span> : null}</div>
+              {att.map((a: any, i: number) => (
+                <div key={i} className="att-row" onClick={() => a.name && onOpenPerson(a.name)}>
+                  <div className="att-av"><Avatar name={a.name || "?"} size={34} />{stIcon(a.status)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div className="att-name">{a.name || "—"}{a.role ? <span className="att-role"> · {a.role}</span> : null}</div>{a.email ? <div className="att-sub">{a.email}</div> : null}</div>
+                  <span style={{ color: "var(--muted2)" }}>›</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </>)}
+    </div></div>
   )
 }
 
