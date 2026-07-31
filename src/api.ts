@@ -53,6 +53,8 @@ export async function login(pin: string) {
 export const getThreads = () => j("/api/threads?limit=200")
 export const getThread = (key: string) => j("/api/thread?key=" + encodeURIComponent(key) + "&limit=60")
 export const getThreadDelta = (key: string, sinceRev = 0) => j("/api/thread/delta?key=" + encodeURIComponent(key) + "&sinceRev=" + (sinceRev || 0))
+// marca el hilo como LEÍDO (paridad con web/mobile, que lo llaman al abrir) → limpia el punto de "no leído" en el server
+export const markSeen = (key: string, ts: number) => j("/api/thread/seen", { method: "POST", body: JSON.stringify({ key, ts: ts || Date.now() }) })
 // mensajes MÁS ANTIGUOS (paginación hacia atrás): trae los previos a `before` (un ts)
 export const getThreadBefore = (key: string, before: number) => j("/api/thread?key=" + encodeURIComponent(key) + "&limit=60&before=" + (before || 0))
 // SYNC de texto completo (backfill grande, liviano): página de 800 hacia atrás → {items, oldestTs, hasMore}

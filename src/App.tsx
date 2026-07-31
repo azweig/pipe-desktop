@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -44,21 +44,34 @@ async function ensureNotifPermission(): Promise<boolean> {
 }
 
 const _mediaCache = new Map<string, string>()
-function useHubMedia(path?: string) { // baja CUALQUIER media del hub (foto/audio/imagen/video) autenticada → data URI
+// baja CUALQUIER media del hub (foto/audio/imagen/video) autenticada → data URI.
+// LAZY: la descarga (round-trip nativo a Rust vía hubImage) SOLO se dispara cuando el elemento entra/está cerca del viewport
+// (IntersectionObserver). Antes cada avatar/imagen bajaba al montar → la bandeja con cientos de avatares lanzaba cientos de
+// fetches nativos a la vez y jankeaba todo. El `_mediaCache` hace que lo ya bajado se pinte al instante y NUNCA se re-pida.
+function useHubMedia(path?: string) {
   const [src, setSrc] = useState<string>(() => (path && _mediaCache.get(path)) || "")
+  const ref = useRef<any>(null) // se engancha al elemento (placeholder/img) para observar su visibilidad
   useEffect(() => {
     if (!path) { setSrc(""); return }
-    if (_mediaCache.has(path)) { setSrc(_mediaCache.get(path)!); return }
+    if (_mediaCache.has(path)) { setSrc(_mediaCache.get(path)!); return } // ya en cache → instantáneo, sin fetch ni flash
+    setSrc("")
     let alive = true
-    hubImage(path).then((d) => { if (d) { _mediaCache.set(path, d); if (alive) setSrc(d) } }).catch(() => {})
-    return () => { alive = false }
+    const fetchNow = () => {
+      if (_mediaCache.has(path)) { if (alive) setSrc(_mediaCache.get(path)!); return }
+      hubImage(path).then((d) => { if (d) { _mediaCache.set(path, d); if (alive) setSrc(d) } }).catch(() => {})
+    }
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === "undefined") { fetchNow(); return () => { alive = false } } // sin nodo/IO → eager como antes
+    const io = new IntersectionObserver((ents) => { if (ents.some((e) => e.isIntersecting)) { io.disconnect(); fetchNow() } }, { rootMargin: "300px" }) // 300px antes de entrar → pre-carga suave
+    io.observe(el)
+    return () => { alive = false; io.disconnect() }
   }, [path])
-  return src
+  return { src, ref }
 }
 function Avatar({ name, photo, size = 40 }: { name: string; photo?: string; size?: number }) {
-  const src = useHubMedia(photo) // baja la foto real del hub; si no hay, cae a las iniciales
-  if (src) return <img className="avatar" src={src} style={{ width: size, height: size }} alt="" />
-  return <div className="avatar" style={{ width: size, height: size, background: colorOf(name), fontSize: size / 2.8 }}>{initials(name)}</div>
+  const { src, ref } = useHubMedia(photo) // baja la foto real del hub SOLO cuando es visible; si no hay, cae a las iniciales
+  if (src) return <img ref={ref} className="avatar" src={src} style={{ width: size, height: size }} alt="" />
+  return <div ref={ref} className="avatar" style={{ width: size, height: size, background: colorOf(name), fontSize: size / 2.8 }}>{initials(name)}</div>
 }
 const PLACEHOLDER = /^(🖼|📹|🎤|📄|🌟|📎|📍|👤|🖼️)/
 // VIDEO: NO lo bajamos como base64 (pesado/lento, se colgaba). Mostramos un póster con "▶ Descargar y reproducir": al click, el lado
@@ -82,7 +95,7 @@ function VideoCard({ path, filename, dur }: { path: string; filename?: string; d
   )
 }
 function MediaView({ id, path, kind, filename, dur }: { id: string; path: string; kind: string; filename?: string; dur?: number }) {
-  const src = useHubMedia(kind === "video" ? undefined : path) // el video no se pre-baja (ver VideoCard); imágenes/audio siguen como data-URI
+  const { src, ref } = useHubMedia(kind === "video" ? undefined : path) // el video no se pre-baja (ver VideoCard); imágenes/audio bajan LAZY al ser visibles
   // 🌐 transcribir + resumir: mismo backend que web/mobile (POST /api/media/summarize). Solo para audio/video/imagen recibidos.
   const [sum, setSum] = useState<{ summary?: string; transcript?: string; lang?: string } | null>(null)
   const [sumBusy, setSumBusy] = useState(false)
@@ -96,10 +109,10 @@ function MediaView({ id, path, kind, filename, dur }: { id: string; path: string
     if (!r || r.error) { setSumErr((r && r.error) || "No se pudo procesar el archivo."); return }
     setSum({ summary: r.summary, transcript: r.transcript, lang: r.lang })
   }
-  if (kind !== "video" && !src) return <div className="mediaload"><div className="spin" style={{ width: 18, height: 18, borderWidth: 2 }} /></div>
+  if (kind !== "video" && !src) return <div ref={ref} className="mediaload"><div className="spin" style={{ width: 18, height: 18, borderWidth: 2 }} /></div>
   const player = kind === "video" ? <VideoCard path={path} filename={filename} dur={dur} />
-    : kind === "image" ? <img className="mediaimg" src={src} alt="" />
-    : kind === "audio" ? <audio controls src={src} style={{ width: 250, height: 38 }} /> : null
+    : kind === "image" ? <img ref={ref} className="mediaimg" src={src} alt="" />
+    : kind === "audio" ? <audio ref={ref} controls src={src} style={{ width: 250, height: 38 }} /> : null
   return (
     <>
       {player}
@@ -274,6 +287,8 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const stickerRef = useRef<HTMLInputElement>(null)
   const syncingRef = useRef(false)
+  const ctxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)   // timer del contexto diferido (persona/targets/agenda/encubierto) — se cancela si cambiás de hilo rápido
+  const ctxCacheRef = useRef<Map<string, { person: any; targets: any[]; sched: any; covert: string | null; t: number }>>(new Map()) // último contexto por hilo → reabrir el mismo enseguida no re-pide
   const msgsRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)                 // ¿el scroll del hilo está cerca del fondo? (para no arrastrar al usuario si subió a leer)
   const scrollKeyRef = useRef("")                    // último hilo cuyo scroll llevamos al fondo (para distinguir "cambié de hilo" de "llegó un mensaje")
@@ -366,7 +381,11 @@ export default function App() {
   }
 
   const open = useCallback(async (t: Thread) => {
-    setSel(t); setShowCtx(false); setPerson(null); setDraft(""); setTargets([]); setThreadAuto(false); setThreadErr(""); setSched(null); setSumCard(""); setThreadCovert(null); setCovertOn(false); setHasMore(false); setOldestTs(0)
+    // reabrir el MISMO hilo hace poco → reusamos su contexto (persona/targets/agenda/encubierto) en vez de re-pedirlo
+    const cx = ctxCacheRef.current.get(t.key)
+    const freshCx = !!cx && Date.now() - cx.t < 60000
+    setSel(t); setShowCtx(false); setDraft(""); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
+    setPerson(freshCx ? cx!.person : null); setTargets(freshCx ? cx!.targets : []); setSched(freshCx ? cx!.sched : null); setThreadCovert(freshCx ? cx!.covert : null)
     // 1) LOCAL primero (IndexedDB) → los mensajes viejos aparecen al instante, sin re-descargar
     const local = await cacheLoad(t.key)
     const haveLocal = local.items.length > 0
@@ -390,12 +409,24 @@ export default function App() {
       }
     } catch (e: any) { if (!haveLocal) setThreadErr(e?.code === 401 ? "Sesión expirada — reconectá." : "No pude cargar los mensajes. Reintentá.") }
     setLoadingThread(false)
-    getPerson(t.name).then(setPerson).catch(() => {})
-    getTargets(t.key).then((r) => setTargets(r?.targets || [])).catch(() => {})
-    // 📅 ¿está hablando de agendar? — SOLO en chats (no en email): el detector de reuniones es para conversación de chat, no correo.
-    const isEmailThread = /^email:/i.test(t.key) || (!!(t.channels || []).length && (t.channels || []).every((c) => c === "email"))
-    if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) setSched(r) }).catch(() => {})
-    getCovert(t.key).then((c) => setThreadCovert(c?.enabled ? (c.style || "poema") : null)).catch(() => {}) // 🕊️ ¿este contacto tiene modo encubierto?
+    // ✅ marcar LEÍDO: el desktop nunca llamaba al endpoint /seen → el punto de "no leído" jamás se iba. Web/mobile sí lo hacen al abrir.
+    markSeen(t.key, t.ts || Date.now()).catch(() => {})
+    setThreads((ts) => ts.map((x) => x.key === t.key ? { ...x, unread: 0, unseen: 0 } : x)) // limpio el punto YA (optimista); el próximo getThreads ya lo trae leído
+    // 2b) CONTEXTO NO crítico (persona/targets/agenda/encubierto): DIFERIDO, no compite con el render de los mensajes.
+    //     getSchedule en particular es lento → nunca debe atrasar mostrar el hilo. Si reabrís el mismo hilo enseguida (freshCx), no se re-pide.
+    if (ctxTimerRef.current) clearTimeout(ctxTimerRef.current)
+    if (!freshCx) {
+      // 📅 el detector de agenda es SOLO para chats (no email): correo no coordina reuniones así.
+      const isEmailThread = /^email:/i.test(t.key) || (!!(t.channels || []).length && (t.channels || []).every((c) => c === "email"))
+      ctxTimerRef.current = setTimeout(() => {
+        const entry: { person: any; targets: any[]; sched: any; covert: string | null; t: number } = { person: null, targets: [], sched: null, covert: null, t: Date.now() }
+        ctxCacheRef.current.set(t.key, entry)
+        getPerson(t.name).then((p) => { entry.person = p; setPerson(p) }).catch(() => {})
+        getTargets(t.key).then((r) => { entry.targets = r?.targets || []; setTargets(entry.targets) }).catch(() => {})
+        if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) { entry.sched = r; setSched(r) } }).catch(() => {})
+        getCovert(t.key).then((c) => { const st = c?.enabled ? (c.style || "poema") : null; entry.covert = st; setThreadCovert(st) }).catch(() => {}) // 🕊️ ¿modo encubierto?
+      }, 200)
+    }
   }, [])
   // abrir una conversación desde cualquier pane (radar/notas/contactos/búsqueda IA): vuelve a Mensajes y abre el hilo
   const openByKey = useCallback((key: string, name?: string, photo?: string) => {
@@ -1164,7 +1195,8 @@ function SendOptions({ opts, onPick, onClose }: { opts: any; onPick: (t: string)
   )
 }
 
-const RENDER_CAP = 200 // solo renderizamos las últimas N burbujas: un hilo de miles (email/grupo) NO explota el DOM ni congela la app
+const RENDER_CAP = 60   // PRIMER lote: pintamos solo las últimas 60 burbujas → primer render rapidísimo al cambiar de hilo (antes 200 jankeaba en hilos con media)
+const RENDER_STEP = 200 // cada "ver anteriores" suma 200: un hilo de miles (email/grupo) NO explota el DOM ni molesta con mil clicks
 function Messages({ msgs, isGroup, onFeedback }: { msgs: Msg[]; isGroup?: boolean; onFeedback?: (m: Msg) => void }) {
   const [cap, setCap] = useState(RENDER_CAP)
   if (!msgs.length) return <div className="center">Sin mensajes</div>
@@ -1172,7 +1204,7 @@ function Messages({ msgs, isGroup, onFeedback }: { msgs: Msg[]; isGroup?: boolea
   const shown = overflow ? msgs.slice(msgs.length - cap) : msgs // las MÁS NUEVAS (el resto queda tras el botón "ver anteriores")
   const out: JSX.Element[] = []
   let lastCh = ""
-  if (overflow) out.push(<div key="cap" className="loadolder" onClick={() => setCap((c) => c + RENDER_CAP)}>▲ Ver {msgs.length - cap} mensajes anteriores</div>)
+  if (overflow) out.push(<div key="cap" className="loadolder" onClick={() => setCap((c) => c + RENDER_STEP)}>▲ Ver {msgs.length - cap} mensajes anteriores</div>)
   shown.forEach((m, i) => {
     if (m.channel === "ai-summary") { out.push(<div key={m.id} className="aisum">✦ {m.text}</div>); lastCh = ""; return } // resumen IA como tarjeta, no como burbuja rota
     if (m.channel && m.channel !== lastCh) { lastCh = m.channel; const ci = CH[m.channel]; out.push(<div key={"c" + i} className="chanlabel"><span style={{ width: 7, height: 7, borderRadius: 9, background: ci?.c || "#ccc", display: "inline-block" }} />{ci?.label || m.channel}</div>) }
@@ -1256,9 +1288,9 @@ function Radar({ onOpen, onDraft }: { onOpen: (key: string, name?: string) => vo
 // ── NOTAS: segundo cerebro. Feed (digest IA + categorías + tarjetas) y Chat sobre tus notas. ──
 const NT_QUICK = ["Resumí mis notas de esta semana", "¿Qué estoy postergando?", "¿Qué links guardé para leer?"]
 function NoteImg({ path }: { path: string }) {
-  const src = useHubMedia(path)
-  if (!src) return null
-  return <img className="ntcimg" src={src} alt="" />
+  const { src, ref } = useHubMedia(path)
+  if (!src) return <span ref={ref} style={{ display: "block", height: 1 }} /> // ancla para el IntersectionObserver hasta que la imagen se baje
+  return <img ref={ref} className="ntcimg" src={src} alt="" />
 }
 function NoteCard({ n, onAct, junk }: { n: any; onAct: (id: string, a: string) => void; junk: boolean }) {
   const title = n.clip_title || n.title || (n.text || "").slice(0, 100) || "Nota"
