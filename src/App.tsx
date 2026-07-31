@@ -1450,6 +1450,7 @@ type Contact = { name: string; key?: string; photo?: string; channels?: string[]
 function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; onOpen: (key: string, name?: string, photo?: string) => void; onToast: (msg: string) => void; onMerged: () => void }) {
   const [q, setQ] = useState("")
   const [selName, setSelName] = useState<string | null>(null)
+  const [selKey, setSelKey] = useState<string | undefined>(undefined) // key REAL del hilo del contacto (autoritativa: ahí están los msgs)
   const [p, setP] = useState<any>(null)
   const [pLoading, setPLoading] = useState(false)
   const [dir, setDir] = useState<any[] | null>(null) // DIRECTORIO completo del vault (todos los contactos, no solo los ~200 hilos recientes)
@@ -1476,7 +1477,7 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
     .filter((c) => { const nq = q.trim().toLowerCase(); if (!nq) return true; return (`${c.name || ""} ${c.key || ""}`).toLowerCase().includes(nq) })
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es"))
   const selThread = threads.find((t) => t.name === selName)
-  const openProfile = (t: { name: string }) => { setSelName(t.name); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
+  const openProfile = (t: { name: string; key?: string }) => { setSelName(t.name); setSelKey(t.key); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
   const toggleSel = (key: string) => setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
   const exitSel = () => { setSelMode(false); setSelected(new Set()) }
   // claves seleccionadas EN EL ORDEN de la lista → target = la 1ra (la que se conserva), el resto se absorbe.
@@ -1518,7 +1519,7 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
             <div className="cav" style={{ background: colorOf(selName), width: 72, height: 72, fontSize: 24 }}>{initials(selName)}</div>
             <div className="ctpname">{selName}</div>
             <div className="ctprole">{p?.role || [p?.orgs].filter(Boolean).join(" · ") || (selThread?.channels || []).map((c) => CH[c]?.label || c).join(" · ")}</div>
-            <button className="mbtn" style={{ marginTop: 14 }} onClick={() => onOpen((p?.canon || selThread?.key || selName), selName || undefined, selThread?.photo)}>💬 Abrir conversación</button>
+            <button className="mbtn" style={{ marginTop: 14 }} onClick={() => onOpen((selKey || selThread?.key || p?.canon || selName), selName || undefined, selThread?.photo)}>💬 Abrir conversación</button>
             {p?.bio ? <><div className="ctpgrp">Quién es</div><div className="cbox">{p.bio}</div></> : null}
             {(p?.topics || []).length ? <><div className="ctpgrp">De qué hablan</div><div className="cbox">{p.topics.slice(0, 6).join(" · ")}</div></> : null}
             {((p?.contacts?.phones || []).length || (p?.contacts?.emails || []).length) ? (<>
