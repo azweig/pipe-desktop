@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pipe usa el micrófono para grabar notas de voz y dictar mensajes con IA.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Pipe usa la cámara para enviar fotos y videos.</string>
+</dict>
+</plist>
