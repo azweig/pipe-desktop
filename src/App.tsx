@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, hubImage, getTargets, sendMsg, setPin, setArchive, getAutopilot, setAutopilot, autopilotFeedback, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, hubImage, getTargets, sendMsg, setPin, setArchive, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, isDesktopApp, Thread, Msg } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
 
@@ -171,6 +171,7 @@ export default function App() {
   const [query, setQuery] = useState("")                     // buscador de la bandeja (identidad: nombre/teléfono/email)
   const [msgHits, setMsgHits] = useState<any[]>([])          // resultados del buscador CONTEXTUAL (dentro de los mensajes)
   const [syncMsg, setSyncMsg] = useState("")                 // indicador del sync de texto completo ("Guardando historial…")
+  const [toast, setToast] = useState("")                     // aviso efímero de éxito (se va solo)
 
   useEffect(() => {
     if (!getBase()) { setAuthed(false); return } // sin hub configurado → login (con campo de hub)
@@ -203,6 +204,7 @@ export default function App() {
   const lastMsgId = msgs.length ? msgs[msgs.length - 1].id : ""
   useEffect(() => { if (msgsRef.current && !loadingMore) requestAnimationFrame(() => { if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight }) }, [sel?.key, lastMsgId, loadingThread])
   useEffect(() => { if (!undoArchive) return; const id = setTimeout(() => setUndoArchive(null), 6000); return () => clearTimeout(id) }, [undoArchive]) // el toast de deshacer se va solo
+  useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(""), 3000); return () => clearTimeout(id) }, [toast]) // aviso de éxito se va solo
   // buscador CONTEXTUAL (debounced): busca dentro del cuerpo de los mensajes
   useEffect(() => {
     const q = query.trim(); if (q.length < 2) { setMsgHits([]); return }
@@ -536,6 +538,7 @@ export default function App() {
         ))}
         <div className="grp">Herramientas</div>
         <div className="navitem" onClick={() => setModal("waimport")}><span className="ico">📤</span>Importar WhatsApp</div>
+        <div className="navitem" onClick={() => setModal("appolicy")}><span className="ico">🏖️</span>Piloto: qué escalar</div>
         {syncMsg ? <div className="syncline" title="Guardando todo el texto en tu Mac (offline). Las imágenes quedan on-demand.">💾 {syncMsg}</div> : null}
       </div>
 
@@ -675,7 +678,9 @@ export default function App() {
       {sendOpts && <SendOptions opts={sendOpts} onPick={(t: string) => { setSendOpts(null); doSend(t) }} onClose={() => { setDraft(sendOpts.original || ""); setSendOpts(null) }} />}
       {modal === "covert" && sel && <CovertModal sel={sel} onClose={() => setModal(null)} onSaved={(style: string | null) => { setThreadCovert(style); if (!style) setCovertOn(false); setModal(null) }} />}
       {modal === "waimport" && <WhatsAppImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); refreshThreads() }} />}
+      {modal === "appolicy" && <AutopilotPolicyModal onClose={() => setModal(null)} onSaved={(msg: string) => { setToast(msg); setModal(null) }} />}
       {undoArchive && <div className="toast"><span>🗄 Archivaste <b>{undoArchive.name}</b></span><button onClick={doUndoArchive}>Deshacer</button></div>}
+      {toast && <div className="toast"><span>{toast}</span></div>}
       </>}
     </div>
   )
@@ -697,6 +702,56 @@ function AutopilotModal({ sel, onClose, onSaved }: { sel: Thread; onClose: () =>
         <button className="mbtn" onClick={save}>{cfg?.enabled ? "Guardar cambios" : "Activar piloto"}</button>
         {cfg?.enabled ? <button className="mbtn ghost" onClick={disable}>Desactivar</button> : null}
       </div>
+    </div></div>
+  )
+}
+// política GLOBAL del piloto: qué temas escala a vos (checkboxes de presets + temas libres). No es por-contacto.
+const AP_PRESET_LABELS: Record<string, string> = {
+  money: "Plata / pagos", resign: "Renuncias", hire: "Contrataciones",
+  meeting: "Reuniones o llamadas con hora", appointment: "Citas / turnos",
+  legal: "Temas legales / contratos", emotional: "Temas personales serios", health: "Salud",
+}
+function AutopilotPolicyModal({ onClose, onSaved }: { onClose: () => void; onSaved: (msg: string) => void }) {
+  const [avail, setAvail] = useState<string[]>([])
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [custom, setCustom] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    getAutopilotPolicy()
+      .then((p) => { setAvail(p.presets_available || []); setChecked(new Set(p.presets || [])); setCustom((p.custom || []).join(", ")) })
+      .catch(() => setAvail(Object.keys(AP_PRESET_LABELS)))
+      .finally(() => setLoading(false))
+  }, [])
+  const toggle = (k: string) => setChecked((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const save = async () => {
+    setSaving(true)
+    const customArr = custom.split(",").map((s) => s.trim()).filter(Boolean)
+    const presets = avail.filter((k) => checked.has(k))
+    const r = await setAutopilotPolicy(presets, customArr).catch(() => null)
+    setSaving(false)
+    if (!r) { alert("No se pudo guardar — reintentá."); return }
+    onSaved("✓ Guardado — el piloto te va a escalar esos temas.")
+  }
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
+      <h3>🏖️ Qué escala el piloto</h3>
+      <p className="modalsub">El piloto responde todo, MENOS estos temas — esos te los deja a vos.</p>
+      {loading ? <div className="center" style={{ height: 120 }}><div className="spin" /></div> : (<>
+        <div style={{ margin: "6px 0 12px" }}>
+          {avail.map((k) => (
+            <label key={k} className="modallabel" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 9 }}>
+              <input type="checkbox" checked={checked.has(k)} onChange={() => toggle(k)} /> {AP_PRESET_LABELS[k] || k}
+            </label>
+          ))}
+        </div>
+        <label className="modallabel">Otros temas — separados por coma</label>
+        <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="ej: mudanza, herencia, socios" className="modalinput" />
+        <div className="modalrow" style={{ marginTop: 14 }}>
+          <button className="mbtn" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button>
+          <button className="mbtn ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+        </div>
+      </>)}
     </div></div>
   )
 }

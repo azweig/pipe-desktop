@@ -94,6 +94,11 @@ export const sendStickerB64 = (key: string, b64: string, mime: string, t?: any) 
 export const getAutopilot = (key: string) => j("/api/autopilot/config?key=" + encodeURIComponent(key))
 export const setAutopilot = (key: string, enabled: boolean, maxPerDay = 0) => j("/api/autopilot/config", { method: "POST", body: JSON.stringify({ key, enabled, maxPerDay }) })
 export const autopilotFeedback = (key: string, good: boolean, correction = "", original = "") => j("/api/autopilot/feedback", { method: "POST", body: JSON.stringify({ key, good, correction, original }) })
+// piloto automático — POLÍTICA GLOBAL (no por-contacto): qué temas escala a vos en vez de responder solo.
+export type AutopilotPolicy = { presets: string[]; custom: string[]; presets_available: string[] }
+export const getAutopilotPolicy = (): Promise<AutopilotPolicy> => j("/api/autopilot/policy")
+export const setAutopilotPolicy = (presets: string[], custom: string[]): Promise<AutopilotPolicy> =>
+  j("/api/autopilot/policy", { method: "POST", body: JSON.stringify({ presets, custom }) })
 // IMPORT WhatsApp: el usuario elige un export (.txt = solo texto / .zip = con fotos y audios) con el diálogo nativo.
 // El archivo se lee en Rust (read_file_b64) → base64 → se sube por hub_upload como cuerpo crudo (text/plain o application/zip).
 export const readFileB64 = (path: string): Promise<string> => invoke("read_file_b64", { path }) as Promise<string>
