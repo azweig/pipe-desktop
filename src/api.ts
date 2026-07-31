@@ -142,6 +142,22 @@ export const saveLlm = (b: any) => j("/api/llm-config/save", { method: "POST", b
 export const getNotifPrefs = () => j("/api/notif-prefs")
 export const saveNotifPrefs = (b: any) => j("/api/notif-prefs", { method: "POST", body: JSON.stringify(b) })
 export const suggestReply = (key: string) => j("/api/thread/suggest-reply?key=" + encodeURIComponent(key))
+// ── ENRIQUECIMIENTO SOCIAL (Apify) — perfiles públicos anónimos, sin usar tus cookies ──
+// cuentas Apify: rotan entre ellas y hacen failover cuando una llega al límite mensual gratis
+export type ApifyAccount = { id: string; name: string; runs: number; usd: number; exhausted?: boolean; hint?: string }
+export type ApifyAccounts = { accounts: ApifyAccount[]; rr?: number; actors?: Record<string, string>; month?: string }
+export const getApifyAccounts = (): Promise<ApifyAccounts> => j("/api/apify/accounts")
+export const addApifyAccount = (name: string, token: string): Promise<ApifyAccounts> => j("/api/apify/accounts", { method: "POST", body: JSON.stringify({ name, token }) })
+export const removeApifyAccount = (id: string): Promise<ApifyAccounts> => j("/api/apify/accounts", { method: "POST", body: JSON.stringify({ remove: id }) })
+export const setApifyActors = (actors: Record<string, string>): Promise<ApifyAccounts> => j("/api/apify/accounts", { method: "POST", body: JSON.stringify({ actors }) })
+// perfil social de un contacto: links pegados + investigación (resumen, rol/empresa/lugar, intereses, relaciones para el ego-grafo)
+export type SocialLinks = { linkedin?: string; instagram?: string; facebook?: string; x?: string }
+export type SocialRelation = { name: string; type: string }
+export type SocialProfiles = { summary?: string; role?: string; company?: string; location?: string; interests?: string[]; relationships?: SocialRelation[] }
+export type ContactSocial = { links: SocialLinks; profiles: SocialProfiles | null; sources?: string[]; errors?: Record<string, string>; updatedAt?: number }
+export const getContactSocial = (key: string): Promise<ContactSocial> => j("/api/contact/social?key=" + encodeURIComponent(key))
+export const setContactLinks = (key: string, links: SocialLinks): Promise<{ ok?: boolean }> => j("/api/contact/links", { method: "POST", body: JSON.stringify({ key, links }) })
+export const investigateContact = (key: string, links: SocialLinks): Promise<ContactSocial> => j("/api/contact/investigate", { method: "POST", body: JSON.stringify({ key, links }) })
 // resumen IA de un audio/video/imagen RECIBIDO: transcribe + resume (traduce si está en otro idioma) → {summary, transcript?, lang?} | {error}
 export const summarizeMedia = (id: string): Promise<{ summary?: string; transcript?: string; lang?: string; error?: string }> =>
   j("/api/media/summarize", { method: "POST", body: JSON.stringify({ id }) })

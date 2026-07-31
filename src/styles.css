@@ -442,6 +442,25 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .ctstat { flex: 1; background: var(--panel2); border-radius: 11px; padding: 12px; text-align: center; }
 .ctstat b { display: block; font-size: 19px; font-weight: 800; }
 .ctstat span { font-size: 11px; color: var(--muted); }
+.ctpinner .cbox { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 12px 13px; font-size: 12.5px; line-height: 1.5; color: var(--ink); }
+
+/* ── enriquecimiento social (Apify) + ego-grafo ── */
+.apbadge { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: 6px; padding: 1px 6px; }
+.ctenrich { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
+.enrfields { display: flex; flex-direction: column; gap: 8px; }
+.enrfield { display: flex; align-items: center; gap: 9px; }
+.enricon { width: 22px; text-align: center; font-size: 15px; flex-shrink: 0; }
+.enrinput { flex: 1; min-width: 0; box-sizing: border-box; border: 1px solid var(--line2); border-radius: 9px; padding: 8px 11px; font-size: 12.5px; outline: none; font-family: inherit; background: var(--bg); color: var(--ink); }
+.enrinput:focus { border-color: var(--accent); }
+.enrmeta { font-size: 12.5px; color: var(--muted); margin-top: 8px; font-weight: 600; }
+.egowrap { display: flex; justify-content: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 8px; overflow-x: auto; }
+.egocanvas { display: block; }
+.egolegend { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 10px; }
+.egolegitem { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); text-transform: capitalize; }
+.egolegitem i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.enrsources { font-size: 11px; color: var(--muted2); margin-top: 12px; line-height: 1.5; word-break: break-word; }
+.enrerrs { margin-top: 12px; display: flex; flex-direction: column; gap: 5px; }
+.enrerr { font-size: 11.5px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 8px; padding: 6px 10px; }
 
 /* ── utilidad ── */
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -962,7 +962,7 @@ function AutopilotPolicyModal({ onClose, onSaved }: { onClose: () => void; onSav
 const AI_PROV: [string, string][] = [["openai", "OpenAI"], ["anthropic", "Anthropic (Claude)"], ["gemini", "Google Gemini"]]
 const PLABEL: Record<string, string> = { openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama (local)", gestionado: "GPU box (gestionado)" }
 function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => void; onOpenAutopilot: () => void; onToast: (m: string) => void }) {
-  const [tab, setTab] = useState<"canales" | "ia" | "notif">("canales")
+  const [tab, setTab] = useState<"canales" | "ia" | "notif" | "apify">("canales")
   const [hub, setHub] = useState<any>(null)
   const [accts, setAccts] = useState<any>({ email: [] })
   const [llm, setLlm] = useState<any>(null)
@@ -971,6 +971,28 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
   const [busy, setBusy] = useState(false)
   const [em, setEm] = useState({ name: "", user: "", pass: "" }); const [showEmail, setShowEmail] = useState(false)
   const [key, setKey] = useState({ provider: "openai", name: "", token: "", test: "" }); const [showKey, setShowKey] = useState(false)
+  // ── Enriquecimiento (Apify): cuentas rotativas + config avanzada de actors por plataforma ──
+  const [apify, setApify] = useState<{ accounts: ApifyAccount[]; actors?: Record<string, string>; month?: string } | null>(null)
+  const [ap, setAp] = useState({ name: "", token: "" }); const [showAp, setShowAp] = useState(false); const [apBusy, setApBusy] = useState(false)
+  const [showActors, setShowActors] = useState(false); const [actorsDraft, setActorsDraft] = useState(""); const [actorsErr, setActorsErr] = useState("")
+  const loadApify = async () => { const r = await getApifyAccounts().catch(() => ({ accounts: [] } as any)); setApify(r || { accounts: [] }) }
+  useEffect(() => { if (tab === "apify" && !apify) loadApify() }, [tab])
+  const addAp = async () => {
+    if (!ap.name.trim() || !ap.token.trim()) { onToast("Falta el nombre o el token de Apify."); return }
+    setApBusy(true)
+    const r = await addApifyAccount(ap.name.trim(), ap.token.trim()).catch(() => null)
+    setApBusy(false)
+    if (r && r.accounts) { setApify(r); setAp({ name: "", token: "" }); setShowAp(false); onToast("✓ Cuenta Apify agregada") }
+    else onToast("No se pudo — revisá el token")
+  }
+  const removeAp = async (id: string) => { setApBusy(true); const r = await removeApifyAccount(id).catch(() => null); setApBusy(false); if (r && r.accounts) setApify(r) }
+  const openActors = () => { setActorsDraft(JSON.stringify(apify?.actors || {}, null, 2)); setActorsErr(""); setShowActors(true) }
+  const saveActors = async () => {
+    let parsed: Record<string, string>
+    try { parsed = JSON.parse(actorsDraft) } catch { setActorsErr("JSON inválido"); return }
+    setApBusy(true); const r = await setApifyActors(parsed).catch(() => null); setApBusy(false)
+    if (r && r.accounts) { setApify(r); setShowActors(false); onToast("✓ Config guardada") } else setActorsErr("No se pudo guardar")
+  }
 
   const load = async () => {
     const [h, a, l, n] = await Promise.all([
@@ -1025,7 +1047,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
         <button onClick={onClose} style={{ fontSize: 20, color: "var(--muted)", width: 30, height: 30 }}>✕</button>
       </div>
       <div className="segtabs">
-        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["notif", "🔔 Avisos"]] as [string, string][]).map(([id, l]) =>
+        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["apify", "🔍 Enriquecer"], ["notif", "🔔 Avisos"]] as [string, string][]).map(([id, l]) =>
           <button key={id} className={"segtab" + (tab === id ? " on" : "")} onClick={() => setTab(id as any)}>{l}</button>)}
       </div>
       {loading ? <div className="center" style={{ height: 120 }}><div className="spin" /></div> : (<>
@@ -1069,6 +1091,41 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
             </div>
           ) : <button className="setadd" onClick={() => setShowKey(true)}>➕ Agregar key de IA</button>}
           <div className="cfg-note2">Tus tokens se guardan cifrados en tu servidor y nunca se muestran. Elegí qué motor usa cada tarea desde la app web.</div>
+        </>)}
+        {tab === "apify" && (<>
+          <label className="modallabel" style={{ marginTop: 6 }}>Cuentas Apify</label>
+          <div className="modalsub" style={{ marginBottom: 12 }}>Perfiles sociales anónimos (no usa tus cookies). Cargá una o varias cuentas Apify — rota entre ellas y si una llega al límite mensual pasa a la siguiente.</div>
+          {!apify ? <div className="center" style={{ height: 80 }}><div className="spin" /></div> : (<>
+            {(apify.accounts || []).length ? (apify.accounts || []).map((a) => (
+              <div key={a.id} className="setrow">
+                <span style={{ fontSize: 17 }}>🔍</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>{a.name}{a.exhausted ? <span className="apbadge">AGOTADA</span> : null}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{a.runs || 0} runs · ${(a.usd || 0).toFixed ? (a.usd || 0).toFixed(2) : a.usd}{a.hint ? ` · ••••${a.hint}` : ""}</div>
+                </div>
+                <button onClick={() => removeAp(a.id)} disabled={apBusy} style={{ color: "var(--danger)", fontSize: 15 }} data-tip="Quitar">✕</button>
+              </div>
+            )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Sin cuentas — agregá una para investigar contactos.</div>}
+            {showAp ? (
+              <div className="setform">
+                <div className="modalsub" style={{ marginBottom: 10 }}>Creá un token gratis en <b>apify.com</b> (Settings → Integrations) y pegalo acá.</div>
+                <input className="modalinput" placeholder="Nombre (ej: Apify 1)" value={ap.name} onChange={(e) => setAp((s) => ({ ...s, name: e.target.value }))} />
+                <input className="modalinput" placeholder="Token de Apify (apify_api_…)" type="password" value={ap.token} onChange={(e) => setAp((s) => ({ ...s, token: e.target.value }))} autoCapitalize="none" spellCheck={false} />
+                <div className="modalrow"><button className="mbtn" onClick={addAp} disabled={apBusy}>{apBusy ? "Agregando…" : "Agregar"}</button><button className="mbtn ghost" onClick={() => setShowAp(false)}>Cancelar</button></div>
+              </div>
+            ) : <button className="setadd" onClick={() => setShowAp(true)}>➕ Agregar cuenta Apify</button>}
+            <button className="setrow tap" style={{ width: "100%", textAlign: "left", background: "none", marginTop: 6 }} onClick={() => showActors ? setShowActors(false) : openActors()}>
+              <span style={{ fontSize: 17 }}>⚙️</span><div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>Avanzado</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>Actor de Apify por plataforma (JSON)</div></div><span style={{ color: "var(--muted2)" }}>{showActors ? "⌄" : "›"}</span>
+            </button>
+            {showActors ? (
+              <div className="setform">
+                <textarea className="modalinput" style={{ minHeight: 130, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12, resize: "vertical", marginBottom: 10 }} value={actorsDraft} onChange={(e) => { setActorsDraft(e.target.value); setActorsErr("") }} spellCheck={false} />
+                {actorsErr ? <div style={{ fontSize: 12, color: "var(--danger)", marginBottom: 10 }}>{actorsErr}</div> : null}
+                <div className="modalrow"><button className="mbtn" onClick={saveActors} disabled={apBusy}>{apBusy ? "…" : "Guardar"}</button><button className="mbtn ghost" onClick={() => setShowActors(false)}>Cerrar</button></div>
+              </div>
+            ) : null}
+          </>)}
+          <div className="cfg-note2">La investigación corre de forma anónima con estas cuentas. Se usa desde el perfil de cada contacto, en Contactos.{apify?.month ? ` Uso de ${apify.month}.` : ""}</div>
         </>)}
         {tab === "notif" && (<>
           <label className="modallabel" style={{ marginTop: 6 }}>🌙 Horas de silencio — no te aviso en ese rango</label>
@@ -1550,9 +1607,113 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
               {p.channels.map((c: any, i: number) => <div key={i} className="ctchan"><span style={{ width: 8, height: 8, borderRadius: 9, background: CH[c.channel]?.c || "#ccc", display: "inline-block", flexShrink: 0 }} />{CH[c.channel]?.label || c.channel}{c.last ? <span className="ctchanago">{ago(c.last)}</span> : null}</div>)}
             </>) : null}
             {p?.stats ? <div className="ctstats">{p.stats.respMin != null ? <div className="ctstat"><b>{p.stats.respMin}m</b><span>responde</span></div> : null}{p.stats.messages != null ? <div className="ctstat"><b>{p.stats.messages}</b><span>mensajes</span></div> : null}</div> : null}
+            <ContactEnrich key={selKey || selThread?.key || p?.canon || selName} contactKey={selKey || selThread?.key || p?.canon || selName!} name={selName!} onToast={onToast} />
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── ENRIQUECIMIENTO SOCIAL: pega links (LinkedIn/IG/FB/X), "Investigar" (Apify anónimo) y ego-grafo radial tipo Obsidian. ──
+const REL_COLORS: Record<string, string> = { colega: "#3b82f6", empresa: "#8b5cf6", socio: "#22a06b", amigo: "#e0872b", familia: "#e2483d" }
+const relColor = (t: string) => REL_COLORS[(t || "").toLowerCase()] || "#7c8398"
+const SOCIAL_FIELDS: [keyof SocialLinks, string, string][] = [
+  ["linkedin", "🔗", "linkedin.com/in/…"], ["instagram", "📷", "instagram.com/…"],
+  ["facebook", "📘", "facebook.com/…"], ["x", "✖️", "x.com/…"],
+]
+function EgoGraph({ center, relations }: { center: string; relations: { name: string; type: string }[] }) {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return
+    const dpr = window.devicePixelRatio || 1
+    const W = 420, H = 300; cv.width = W * dpr; cv.height = H * dpr
+    const ctx = cv.getContext("2d"); if (!ctx) return
+    ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H)
+    const css = getComputedStyle(document.documentElement)
+    const line = css.getPropertyValue("--line2").trim() || "#e3e5ee"
+    const ink = css.getPropertyValue("--ink").trim() || "#1e2030"
+    const muted = css.getPropertyValue("--muted").trim() || "#7c8398"
+    const accent = css.getPropertyValue("--accent").trim() || "#6366f1"
+    const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 46
+    const rels = (relations || []).slice(0, 12)
+    // 1) líneas al centro
+    rels.forEach((r, i) => {
+      const a = -Math.PI / 2 + (i / Math.max(rels.length, 1)) * Math.PI * 2
+      const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.strokeStyle = line; ctx.lineWidth = 1.5; ctx.stroke()
+    })
+    // 2) nodos del anillo
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"
+    rels.forEach((r, i) => {
+      const a = -Math.PI / 2 + (i / Math.max(rels.length, 1)) * Math.PI * 2
+      const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R, col = relColor(r.type)
+      ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill()
+      ctx.fillStyle = ink; ctx.font = "600 11px -apple-system, system-ui, sans-serif"
+      const label = (r.name || "").length > 16 ? (r.name || "").slice(0, 15) + "…" : (r.name || "")
+      const ly = y + (Math.sin(a) >= 0 ? 22 : -22)
+      ctx.fillText(label, x, ly)
+      if (r.type) { ctx.fillStyle = muted; ctx.font = "500 9px -apple-system, system-ui, sans-serif"; ctx.fillText(r.type, x, ly + (Math.sin(a) >= 0 ? 12 : 12)) }
+    })
+    // 3) nodo central
+    ctx.beginPath(); ctx.arc(cx, cy, 20, 0, Math.PI * 2); ctx.fillStyle = accent; ctx.fill()
+    ctx.fillStyle = "#fff"; ctx.font = "800 13px -apple-system, system-ui, sans-serif"
+    ctx.fillText(initials(center), cx, cy)
+  }, [center, JSON.stringify(relations)])
+  return <canvas ref={ref} className="egocanvas" style={{ width: 420, height: 300, maxWidth: "100%" }} />
+}
+function ContactEnrich({ contactKey, name, onToast }: { contactKey: string; name: string; onToast: (m: string) => void }) {
+  const [links, setLinks] = useState<SocialLinks>({})
+  const [data, setData] = useState<ContactSocial | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    getContactSocial(contactKey).then((r) => { setData(r || null); setLinks((r && r.links) || {}) }).catch(() => {})
+  }, [contactKey])
+  const saveLinks = async () => { await setContactLinks(contactKey, links).catch(() => {}) }
+  const investigate = async () => {
+    setBusy(true)
+    const r = await investigateContact(contactKey, links).catch(() => null)
+    setBusy(false)
+    if (r) { setData(r); if (r.links) setLinks(r.links); onToast("✓ Investigación lista") }
+    else onToast("No se pudo investigar — revisá las cuentas Apify en Ajustes")
+  }
+  const prof = data?.profiles
+  const rels = prof?.relationships || []
+  const meta = [prof?.role, prof?.company, prof?.location].filter(Boolean).join(" · ")
+  const errs = Object.entries(data?.errors || {}).filter(([, v]) => v)
+  return (
+    <div className="ctenrich">
+      <div className="ctpgrp">Enriquecer perfil</div>
+      <div className="enrfields">
+        {SOCIAL_FIELDS.map(([k, icon, ph]) => (
+          <div key={k} className="enrfield">
+            <span className="enricon">{icon}</span>
+            <input className="enrinput" placeholder={ph} value={links[k] || ""} spellCheck={false} autoCapitalize="none"
+              onChange={(e) => setLinks((s) => ({ ...s, [k]: e.target.value }))} onBlur={saveLinks} />
+          </div>
+        ))}
+      </div>
+      <button className="mbtn" style={{ marginTop: 12 }} onClick={investigate} disabled={busy}>{busy ? "Investigando…" : "🔍 Investigar"}</button>
+      {busy ? <div className="center" style={{ height: 60, gap: 10 }}><div className="spin" /><span style={{ color: "var(--muted)", fontSize: 12.5 }}>Investigando…</span></div> : null}
+      {!busy && prof ? (<>
+        {prof.summary ? <><div className="ctpgrp">Resumen</div><div className="cbox">{prof.summary}</div></> : null}
+        {meta ? <div className="enrmeta">{meta}</div> : null}
+        {(prof.interests || []).length ? (<>
+          <div className="ctpgrp">Intereses</div>
+          <div className="ctchips">{(prof.interests || []).map((it, i) => <span key={i} className="ctchip">{it}</span>)}</div>
+        </>) : null}
+        {rels.length ? (<>
+          <div className="ctpgrp">Red (ego-grafo)</div>
+          <div className="egowrap"><EgoGraph center={name} relations={rels} /></div>
+          <div className="egolegend">
+            {[...new Set(rels.map((r) => (r.type || "").toLowerCase()).filter(Boolean))].map((t) =>
+              <span key={t} className="egolegitem"><i style={{ background: relColor(t) }} />{t}</span>)}
+          </div>
+        </>) : null}
+        {(data?.sources || []).length ? <div className="enrsources">Fuentes: {(data!.sources || []).join(" · ")}</div> : null}
+      </>) : null}
+      {!busy && errs.length ? <div className="enrerrs">{errs.map(([k, v]) => <div key={k} className="enrerr">⚠ {k}: {v}</div>)}</div> : null}
+      {data?.updatedAt ? <div className="enrsources" style={{ marginTop: 4 }}>Actualizado {ago(data.updatedAt)}</div> : null}
     </div>
   )
 }
