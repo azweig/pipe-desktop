@@ -73,6 +73,20 @@ export const setCovert = (key: string, pass: string, style: string) => j("/api/c
 export const openExternal = (url: string) => invoke("open_url", { url }).catch(() => {})
 export const setPin = (key: string, pinned: boolean) => j("/api/contact/pin", { method: "POST", body: JSON.stringify({ key, pinned }) })
 export const setArchive = (key: string, on = true) => j("/api/contact/archive", { method: "POST", body: JSON.stringify({ key, on }) })
+// silenciar/reactivar un contacto (ruido que no es spam → pestaña "Silenciados")
+export const setSilence = (key: string, on = true) => j("/api/contact/silence", { method: "POST", body: JSON.stringify({ key, on }) })
+// cerrar sesión: invalida el sid en el server y lo borra local → vuelve al Login (hub queda guardado)
+export async function logout() { try { await j("/api/auth/logout", { method: "POST" }) } catch {}; SID = ""; try { localStorage.removeItem("sid") } catch {} }
+// ── Configuración (paridad con web/mobile) ──
+export const getHubConfig = () => j("/api/hub-config")
+export const getAccounts = () => j("/api/accounts")
+export const addEmailAccount = (b: { user: string; pass: string; name?: string }) => j("/api/accounts/email", { method: "POST", body: JSON.stringify(b) })
+export const removeEmailAccount = (label: string) => j("/api/accounts/email/remove", { method: "POST", body: JSON.stringify({ label }) })
+export const getLlmConfig = () => j("/api/llm-config")
+export const testLlm = (b: { provider: string; token: string }) => j("/api/llm-config/test", { method: "POST", body: JSON.stringify(b) })
+export const saveLlm = (b: any) => j("/api/llm-config/save", { method: "POST", body: JSON.stringify(b) })
+export const getNotifPrefs = () => j("/api/notif-prefs")
+export const saveNotifPrefs = (b: any) => j("/api/notif-prefs", { method: "POST", body: JSON.stringify(b) })
 export const suggestReply = (key: string) => j("/api/thread/suggest-reply?key=" + encodeURIComponent(key))
 // resumen IA de un audio/video/imagen RECIBIDO: transcribe + resume (traduce si está en otro idioma) → {summary, transcript?, lang?} | {error}
 export const summarizeMedia = (id: string): Promise<{ summary?: string; transcript?: string; lang?: string; error?: string }> =>

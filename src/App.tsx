@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
-import type { ChangeEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, hubImage, getTargets, sendMsg, setPin, setArchive, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, isDesktopApp, Thread, Msg } from "./api"
+import type { ChangeEvent, UIEvent } from "react"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, hubImage, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
 
@@ -172,6 +172,7 @@ export default function App() {
   const [msgHits, setMsgHits] = useState<any[]>([])          // resultados del buscador CONTEXTUAL (dentro de los mensajes)
   const [syncMsg, setSyncMsg] = useState("")                 // indicador del sync de texto completo ("Guardando historial…")
   const [toast, setToast] = useState("")                     // aviso efímero de éxito (se va solo)
+  const [avatarMenu, setAvatarMenu] = useState(false)        // menú del avatar (AZ) abajo-izquierda: Configuración / Cerrar sesión
 
   useEffect(() => {
     if (!getBase()) { setAuthed(false); return } // sin hub configurado → login (con campo de hub)
@@ -193,6 +194,8 @@ export default function App() {
   const stickerRef = useRef<HTMLInputElement>(null)
   const syncingRef = useRef(false)
   const msgsRef = useRef<HTMLDivElement>(null)
+  const nearBottomRef = useRef(true)                 // ¿el scroll del hilo está cerca del fondo? (para no arrastrar al usuario si subió a leer)
+  const scrollKeyRef = useRef("")                    // último hilo cuyo scroll llevamos al fondo (para distinguir "cambié de hilo" de "llegó un mensaje")
   // notificaciones locales: detectar mensajes nuevos entrantes con un poll liviano y avisar si la app NO está enfocada
   const threadsRef = useRef<Thread[]>([])            // últimos threads (para abrir el hilo desde el click de la notificación)
   const seenTsRef = useRef<Map<string, number>>(new Map()) // último ts visto por hilo (para detectar lo nuevo)
@@ -202,7 +205,18 @@ export default function App() {
   useEffect(() => { threadsRef.current = threads }, [threads])
   // scroll al FONDO (lo más nuevo) al abrir un hilo o cuando llega un mensaje nuevo; NO al "cargar anteriores" (loadOlder prepende arriba)
   const lastMsgId = msgs.length ? msgs[msgs.length - 1].id : ""
-  useEffect(() => { if (msgsRef.current && !loadingMore) requestAnimationFrame(() => { if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight }) }, [sel?.key, lastMsgId, loadingThread])
+  // auto-scroll al fondo SOLO cuando corresponde: al ABRIR un hilo (siempre), o al llegar un mensaje nuevo PERO solo si el
+  // usuario ya estaba abajo. Si subió a leer historial, no lo arrastramos (evita el "tirón" y el thrash con hilos largos).
+  const scrollToBottom = () => requestAnimationFrame(() => { if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight })
+  useEffect(() => {
+    if (!msgsRef.current || loadingMore) return
+    const k = sel?.key || ""
+    const threadChanged = scrollKeyRef.current !== k
+    scrollKeyRef.current = k
+    if (threadChanged || loadingThread) { nearBottomRef.current = true; scrollToBottom(); return } // abrí/cambié de hilo → al fondo
+    if (nearBottomRef.current) scrollToBottom()                                                     // mensaje nuevo y estaba abajo → seguí abajo
+  }, [sel?.key, lastMsgId, loadingThread, loadingMore])
+  const onMsgsScroll = (e: UIEvent<HTMLDivElement>) => { const el = e.currentTarget; nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140 }
   useEffect(() => { if (!undoArchive) return; const id = setTimeout(() => setUndoArchive(null), 6000); return () => clearTimeout(id) }, [undoArchive]) // el toast de deshacer se va solo
   useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(""), 3000); return () => clearTimeout(id) }, [toast]) // aviso de éxito se va solo
   // buscador CONTEXTUAL (debounced): busca dentro del cuerpo de los mensajes
@@ -231,16 +245,18 @@ export default function App() {
         if (!lm.syncDone) {
           setSyncMsg(`Guardando historial… ${done}/${arr.length}`)
           let before = lm.syncOldest || 0, guard = 0
-          while (guard++ < 8000) {
+          // cap DURO: 300 páginas × 800 = 240k mensajes por hilo. Un hilo gigante (email con miles) no puede secuestrar el loop
+          // ni martillar el hub/IndexedDB indefinidamente — se marca resumible y sigue en el próximo arranque.
+          while (guard++ < 300) {
             const d = await getThreadSync(t.key, before).catch(() => null)
             if (!d || !(d.items || []).length) { await cacheSave(t.key, [], { syncDone: true }); break }
             await cacheSave(t.key, d.items, { syncOldest: d.oldestTs })
             before = d.oldestTs
             if (!d.hasMore) { await cacheSave(t.key, [], { syncDone: true }); break }
-            await new Promise((r) => setTimeout(r, 90)) // throttle: no satura el hub ni congela la UI
+            await new Promise((r) => setTimeout(r, 180)) // throttle amplio: cede el hilo, no satura el hub ni congela la UI
           }
         }
-        await new Promise((r) => setTimeout(r, 40))
+        await new Promise((r) => setTimeout(r, 120))
       }
     } finally { syncingRef.current = false; setSyncMsg("") }
   }
@@ -288,7 +304,9 @@ export default function App() {
     setLoadingThread(false)
     getPerson(t.name).then(setPerson).catch(() => {})
     getTargets(t.key).then((r) => setTargets(r?.targets || [])).catch(() => {})
-    getSchedule(t.key).then((r) => { if (r && r.found) setSched(r) }).catch(() => {}) // 📅 ¿está hablando de agendar?
+    // 📅 ¿está hablando de agendar? — SOLO en chats (no en email): el detector de reuniones es para conversación de chat, no correo.
+    const isEmailThread = /^email:/i.test(t.key) || (!!(t.channels || []).length && (t.channels || []).every((c) => c === "email"))
+    if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) setSched(r) }).catch(() => {})
     getCovert(t.key).then((c) => setThreadCovert(c?.enabled ? (c.style || "poema") : null)).catch(() => {}) // 🕊️ ¿este contacto tiene modo encubierto?
   }, [])
 
@@ -465,6 +483,23 @@ export default function App() {
     refreshThreads()
   }
   const doUndoArchive = async () => { const a = undoArchive; if (!a) return; setUndoArchive(null); await setArchive(a.key, false).catch(() => {}); refreshThreads() }
+  // 🔕 silenciar / reactivar: mueve el hilo a (o lo saca de) la categoría "Silenciados". Optimista + refresco.
+  const toggleSilence = async () => {
+    if (!sel) return
+    const on = !sel.silenced
+    setSel({ ...sel, silenced: on })
+    setThreads((ts) => ts.map((t) => (t.key === sel.key ? { ...t, silenced: on } : t)))
+    await setSilence(sel.key, on).catch(() => { setSel({ ...sel, silenced: !on }); setThreads((ts) => ts.map((t) => (t.key === sel.key ? { ...t, silenced: !on } : t))) })
+    setToast(on ? "🔕 Conversación silenciada" : "🔔 Avisos reactivados")
+    refreshThreads()
+  }
+  // cerrar sesión: invalida el sid, limpia el estado local y vuelve al Login (el hub queda guardado → solo re-pedir PIN)
+  const doLogout = async () => {
+    setAvatarMenu(false)
+    await logout().catch(() => {})
+    try { localStorage.removeItem("pipe_threads") } catch {}
+    setSel(null); setThreads([]); setMsgs([]); setAuthed(false)
+  }
 
   if (authed === null) return <div className="center"><div className="spin" /></div>
   if (!authed) return <Login onOk={() => setAuthed(true)} />
@@ -502,8 +537,16 @@ export default function App() {
         <button className="tipright" data-tip="Notas (próximamente)">📄</button>
         <button className="tipright" data-tip="Personas (próximamente)">👤</button>
         <div className="spacer" />
-        <div className="me">AZ</div>
+        <button className="me tipright" data-tip="Cuenta y ajustes" onClick={() => setAvatarMenu((v) => !v)}>AZ</button>
       </div>
+
+      {avatarMenu && (<>
+        <div className="avmenu-bg" onClick={() => setAvatarMenu(false)} />
+        <div className="avmenu">
+          <button onClick={() => { setAvatarMenu(false); setModal("settings") }}><span>⚙️</span>Configuración</button>
+          <button className="danger" onClick={doLogout}><span>↩</span>Cerrar sesión</button>
+        </div>
+      </>)}
 
       {pane === "calendario" ? <Calendar onOpenContact={(name) => {
         const nn = name.trim().toLowerCase()
@@ -601,15 +644,16 @@ export default function App() {
               <button data-tip="Sugerir una respuesta (IA)" onClick={async () => { if (!sel) return; const r = await import("./api").then((a) => a.suggestReply(sel.key)).catch(() => null); if (r?.draft) setDraft(r.draft) }}>✦</button>
               <button data-tip="Resumir la conversación (IA)" onClick={summarize} disabled={busy === "sum"}>{busy === "sum" ? "…" : "📝"}</button>
               <button data-tip={threadCovert ? "Modo encubierto (configurado)" : "Modo encubierto (El Santo)"} onClick={() => setModal("covert")} style={{ color: threadCovert ? "var(--accent)" : undefined }}>🕊️</button>
+              <button data-tip={sel.silenced ? "Silenciada — reactivar avisos" : "Silenciar esta conversación"} onClick={toggleSilence} style={sel.silenced ? { color: "var(--accent)" } : undefined}>{sel.silenced ? "🔔" : "🔕"}</button>
               <button data-tip={sel.pinned ? "Fijada arriba — desfijar" : "Fijar arriba"} onClick={togglePin} style={sel.pinned ? { color: "#fff", background: "var(--accent)", borderRadius: 8 } : undefined}>📌</button>
               <button data-tip="Archivar" onClick={archive}>🗄</button>
             </div>
           </div>
-          <div className="msgs" ref={msgsRef}>
+          <div className="msgs" ref={msgsRef} onScroll={onMsgsScroll}>
             {!loadingThread && !threadErr && hasMore ? <div className="loadolder" onClick={loadOlder}>{loadingMore ? "Cargando…" : "▲ Cargar mensajes anteriores"}</div> : null}
             {loadingThread ? <div className="center"><div className="spin" /></div>
               : threadErr ? <div className="center" style={{ flexDirection: "column", gap: 10 }}><span style={{ color: "var(--muted)" }}>{threadErr}</span><button className="mbtn" onClick={() => open(sel)}>Reintentar</button></div>
-              : <Messages msgs={msgs} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} />}
+              : <Messages key={sel.key} msgs={msgs} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} />}
             {sumCard ? <div className="aisum" style={{ margin: "10px 6px" }}>📝 {sumCard}</div> : null}
           </div>
           <div className="composer">
@@ -679,6 +723,7 @@ export default function App() {
       {modal === "covert" && sel && <CovertModal sel={sel} onClose={() => setModal(null)} onSaved={(style: string | null) => { setThreadCovert(style); if (!style) setCovertOn(false); setModal(null) }} />}
       {modal === "waimport" && <WhatsAppImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); refreshThreads() }} />}
       {modal === "appolicy" && <AutopilotPolicyModal onClose={() => setModal(null)} onSaved={(msg: string) => { setToast(msg); setModal(null) }} />}
+      {modal === "settings" && <SettingsModal onClose={() => setModal(null)} onOpenAutopilot={() => setModal("appolicy")} onToast={(m: string) => setToast(m)} />}
       {undoArchive && <div className="toast"><span>🗄 Archivaste <b>{undoArchive.name}</b></span><button onClick={doUndoArchive}>Deshacer</button></div>}
       {toast && <div className="toast"><span>{toast}</span></div>}
       </>}
@@ -750,6 +795,136 @@ function AutopilotPolicyModal({ onClose, onSaved }: { onClose: () => void; onSav
         <div className="modalrow" style={{ marginTop: 14 }}>
           <button className="mbtn" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button>
           <button className="mbtn ghost" onClick={onClose} disabled={saving}>Cerrar</button>
+        </div>
+      </>)}
+    </div></div>
+  )
+}
+// ⚙️ Configuración: canales/cuentas · motor de IA (BYOK) · notificaciones. Mismos endpoints que web/mobile.
+const AI_PROV: [string, string][] = [["openai", "OpenAI"], ["anthropic", "Anthropic (Claude)"], ["gemini", "Google Gemini"]]
+const PLABEL: Record<string, string> = { openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama (local)", gestionado: "GPU box (gestionado)" }
+function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => void; onOpenAutopilot: () => void; onToast: (m: string) => void }) {
+  const [tab, setTab] = useState<"canales" | "ia" | "notif">("canales")
+  const [hub, setHub] = useState<any>(null)
+  const [accts, setAccts] = useState<any>({ email: [] })
+  const [llm, setLlm] = useState<any>(null)
+  const [notif, setNotif] = useState<any>({})
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [em, setEm] = useState({ name: "", user: "", pass: "" }); const [showEmail, setShowEmail] = useState(false)
+  const [key, setKey] = useState({ provider: "openai", name: "", token: "", test: "" }); const [showKey, setShowKey] = useState(false)
+
+  const load = async () => {
+    const [h, a, l, n] = await Promise.all([
+      getHubConfig().catch(() => ({})), getAccounts().catch(() => ({ email: [] })),
+      getLlmConfig().catch(() => ({})), getNotifPrefs().catch(() => ({})),
+    ])
+    setHub(h || {}); setAccts(a || { email: [] }); setLlm(l || {}); setNotif(n || {}); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const addEmail = async () => {
+    if (!em.user.trim() || !em.pass.trim()) { onToast("Falta el correo o la contraseña de aplicación."); return }
+    setBusy(true)
+    const r = await addEmailAccount({ user: em.user.trim(), pass: em.pass.trim(), name: em.name.trim() }).catch(() => ({ error: "error" }))
+    setBusy(false)
+    if (r && r.ok) { setEm({ name: "", user: "", pass: "" }); setShowEmail(false); onToast("✓ Cuenta conectada"); load() }
+    else onToast((r && r.error) || "No se pudo — revisá las credenciales")
+  }
+  const removeEmail = async (label: string) => { setBusy(true); await removeEmailAccount(label).catch(() => {}); setBusy(false); load() }
+  // al reguardar keys nunca reenvío tokens existentes (van vacíos → el server conserva los cifrados). Igual que mobile.
+  const existingKeys = () => (llm?.keysList || []).map((k: any) => (k.provider === "ollama" || k.provider === "gestionado") ? { id: k.id, provider: k.provider, name: k.name } : { id: k.id, provider: k.provider, name: k.name, token: "" })
+  const testKey = async () => {
+    if (!key.token.trim()) return
+    setKey((k) => ({ ...k, test: "…" }))
+    const r = await testLlm({ provider: key.provider, token: key.token.trim() }).catch(() => null)
+    setKey((k) => ({ ...k, test: r && r.ok ? "✓ anda (" + (r.model || "") + ")" : "✗ " + ((r && r.error) || "no responde") }))
+  }
+  const saveKey = async () => {
+    if (!key.token.trim()) { onToast("Falta la API key"); return }
+    setBusy(true)
+    const nk = { id: key.provider + "-" + Date.now().toString(36), provider: key.provider, name: key.name.trim() || PLABEL[key.provider], token: key.token.trim() }
+    const r = await saveLlm({ keysList: [...existingKeys(), nk], routing: llm?.routing || {}, stt: llm?.stt, ollamaHost: llm?.ollamaHost }).catch(() => null)
+    setBusy(false)
+    if (r && r.ok) { setKey({ provider: "openai", name: "", token: "", test: "" }); setShowKey(false); onToast("✓ Key agregada"); load() }
+    else onToast((r && r.error) || "No se pudo guardar")
+  }
+  const saveQuiet = async (patch: any) => { const p = { ...notif, ...patch }; setNotif(p); await saveNotifPrefs({ quietStart: p.quietStart ?? null, quietEnd: p.quietEnd ?? null }).catch(() => {}) }
+
+  const HOURS = ["—", ...Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"))]
+  const hourRow = (val: number | null | undefined, onSet: (h: number | null) => void) => (
+    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", margin: "4px 0 12px" }}>
+      {HOURS.map((lbl, i) => { const h = i === 0 ? null : i - 1; const on = (val ?? null) === h
+        return <button key={lbl} onClick={() => onSet(h)} className="hchip" style={{ background: on ? "var(--accent)" : "var(--panel2)", color: on ? "#fff" : "var(--muted)" }}>{lbl}</button> })}
+    </div>
+  )
+
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()} style={{ width: 480, maxWidth: "94vw", maxHeight: "88vh", overflow: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div className="avatar" style={{ width: 40, height: 40, background: "var(--accent)", fontSize: 15 }}>{initials(hub?.ownerName || "Pipe")}</div>
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 16 }}>{hub?.ownerName || "Mi hub"}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{hub?.company || hub?.domain || getBase().replace(/^https?:\/\//, "") || "pipe.one"}</div></div>
+        <button onClick={onClose} style={{ fontSize: 20, color: "var(--muted)", width: 30, height: 30 }}>✕</button>
+      </div>
+      <div className="segtabs">
+        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["notif", "🔔 Avisos"]] as [string, string][]).map(([id, l]) =>
+          <button key={id} className={"segtab" + (tab === id ? " on" : "")} onClick={() => setTab(id as any)}>{l}</button>)}
+      </div>
+      {loading ? <div className="center" style={{ height: 120 }}><div className="spin" /></div> : (<>
+        {tab === "canales" && (<>
+          <label className="modallabel" style={{ marginTop: 6 }}>Cuentas de correo</label>
+          {(accts.email || []).length ? (accts.email || []).map((e: any) => (
+            <div key={e.label} className="setrow">
+              <span style={{ fontSize: 17 }}>✉️</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.user}</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{e.host || ""}{e.count ? ` · ${e.count} correos` : ""}</div></div>
+              {e.kind === "imap" ? <button onClick={() => removeEmail(e.label)} style={{ color: "var(--danger)", fontSize: 15 }} data-tip="Quitar">✕</button> : null}
+            </div>
+          )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Todavía no conectaste ninguna bandeja.</div>}
+          {showEmail ? (
+            <div className="setform">
+              <div className="modalsub" style={{ marginBottom: 10 }}>Gmail/Outlook: usá una <b>contraseña de aplicación</b> (16 letras), no la de tu cuenta.</div>
+              <input className="modalinput" placeholder="Nombre (opcional, ej: Trabajo)" value={em.name} onChange={(e) => setEm((s) => ({ ...s, name: e.target.value }))} />
+              <input className="modalinput" placeholder="tu@correo.com" value={em.user} onChange={(e) => setEm((s) => ({ ...s, user: e.target.value }))} autoCapitalize="none" spellCheck={false} />
+              <input className="modalinput" placeholder="Contraseña de aplicación" type="password" value={em.pass} onChange={(e) => setEm((s) => ({ ...s, pass: e.target.value }))} />
+              <div className="modalrow"><button className="mbtn" onClick={addEmail} disabled={busy}>{busy ? "Conectando…" : "Conectar"}</button><button className="mbtn ghost" onClick={() => setShowEmail(false)}>Cancelar</button></div>
+            </div>
+          ) : <button className="setadd" onClick={() => setShowEmail(true)}>➕ Agregar cuenta de correo</button>}
+          <div className="cfg-note2">Los demás canales (WhatsApp, Telegram, Teams, Slack, calendarios) se vinculan desde el <b>servidor</b> de tu hub o desde la app web. Importar historial de WhatsApp está en la barra lateral, en Herramientas.</div>
+        </>)}
+        {tab === "ia" && (<>
+          <label className="modallabel" style={{ marginTop: 6 }}>Motor de IA — tus keys (BYOK)</label>
+          {(llm?.keysList || []).length ? (llm.keysList || []).map((k: any) => (
+            <div key={k.id} className="setrow">
+              <span style={{ fontSize: 17 }}>{k.provider === "ollama" || k.provider === "gestionado" ? "🖥️" : "🔑"}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>{k.name || k.provider}</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{PLABEL[k.provider] || k.provider}{k.hint ? ` · ${k.hint}` : ""}</div></div>
+              {k.hasToken ? <span style={{ color: "var(--ok)", fontSize: 14 }}>✓</span> : null}
+            </div>
+          )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Sin motor — pegá un token para que la IA funcione.</div>}
+          {showKey ? (
+            <div className="setform">
+              <div className="modalrow" style={{ marginBottom: 10 }}>{AI_PROV.map(([id, l]) => <button key={id} className={"mbtn" + (key.provider === id ? "" : " ghost")} style={{ flex: 1, padding: "8px 4px", fontSize: 12 }} onClick={() => setKey((k) => ({ ...k, provider: id }))}>{l}</button>)}</div>
+              <input className="modalinput" placeholder="Nombre (opcional)" value={key.name} onChange={(e) => setKey((k) => ({ ...k, name: e.target.value }))} />
+              <input className="modalinput" placeholder="Pegá tu API key" type="password" value={key.token} onChange={(e) => setKey((k) => ({ ...k, token: e.target.value, test: "" }))} autoCapitalize="none" spellCheck={false} />
+              {key.test ? <div style={{ fontSize: 12.5, marginBottom: 10, color: key.test.startsWith("✓") ? "var(--ok)" : "var(--danger)" }}>{key.test}</div> : null}
+              <div className="modalrow"><button className="mbtn ghost" style={{ flex: 1 }} onClick={testKey}>Probar</button><button className="mbtn" onClick={saveKey} disabled={busy}>{busy ? "…" : "Agregar"}</button></div>
+              <button className="setcancel" onClick={() => setShowKey(false)}>Cancelar</button>
+            </div>
+          ) : <button className="setadd" onClick={() => setShowKey(true)}>➕ Agregar key de IA</button>}
+          <div className="cfg-note2">Tus tokens se guardan cifrados en tu servidor y nunca se muestran. Elegí qué motor usa cada tarea desde la app web.</div>
+        </>)}
+        {tab === "notif" && (<>
+          <label className="modallabel" style={{ marginTop: 6 }}>🌙 Horas de silencio — no te aviso en ese rango</label>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Desde</div>
+          {hourRow(notif.quietStart, (h) => saveQuiet({ quietStart: h }))}
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>Hasta</div>
+          {hourRow(notif.quietEnd, (h) => saveQuiet({ quietEnd: h }))}
+          <div className="cfg-note2">Para silenciar una conversación puntual, usá el 🔕 en su cabecera.</div>
+        </>)}
+        <div style={{ borderTop: "1px solid var(--line)", margin: "14px 0 0", paddingTop: 12 }}>
+          <button className="setrow tap" style={{ width: "100%", textAlign: "left", background: "none" }} onClick={onOpenAutopilot}>
+            <span style={{ fontSize: 17 }}>🏖️</span><div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>Piloto: qué escala</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>Qué temas te deja a vos en vez de responder solo</div></div><span style={{ color: "var(--muted2)" }}>›</span>
+          </button>
+          <div className="cfg-note2" style={{ marginTop: 8 }}>🕊️ El modo encubierto (El Santo) se configura por conversación, desde el 🕊️ en su cabecera.</div>
         </div>
       </>)}
     </div></div>
@@ -884,11 +1059,16 @@ function SendOptions({ opts, onPick, onClose }: { opts: any; onPick: (t: string)
   )
 }
 
+const RENDER_CAP = 200 // solo renderizamos las últimas N burbujas: un hilo de miles (email/grupo) NO explota el DOM ni congela la app
 function Messages({ msgs, onFeedback }: { msgs: Msg[]; onFeedback?: (m: Msg) => void }) {
+  const [cap, setCap] = useState(RENDER_CAP)
   if (!msgs.length) return <div className="center">Sin mensajes</div>
+  const overflow = msgs.length > cap
+  const shown = overflow ? msgs.slice(msgs.length - cap) : msgs // las MÁS NUEVAS (el resto queda tras el botón "ver anteriores")
   const out: JSX.Element[] = []
   let lastCh = ""
-  msgs.forEach((m, i) => {
+  if (overflow) out.push(<div key="cap" className="loadolder" onClick={() => setCap((c) => c + RENDER_CAP)}>▲ Ver {msgs.length - cap} mensajes anteriores</div>)
+  shown.forEach((m, i) => {
     if (m.channel === "ai-summary") { out.push(<div key={m.id} className="aisum">✦ {m.text}</div>); lastCh = ""; return } // resumen IA como tarjeta, no como burbuja rota
     if (m.channel && m.channel !== lastCh) { lastCh = m.channel; const ci = CH[m.channel]; out.push(<div key={"c" + i} className="chanlabel"><span style={{ width: 7, height: 7, borderRadius: 9, background: ci?.c || "#ccc", display: "inline-block" }} />{ci?.label || m.channel}</div>) }
     if (m.channel === "email") {

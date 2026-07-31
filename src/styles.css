@@ -258,3 +258,25 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .modalrow { display: flex; gap: 8px; }
 .mbtn { flex: 1; background: var(--accent); color: #fff; border-radius: 10px; padding: 11px; font-weight: 600; font-size: 13.5px; }
 .mbtn.ghost { background: var(--panel2); color: var(--ink); flex: 0 0 auto; padding: 11px 16px; }
+
+/* ── menú del avatar (AZ) abajo-izquierda ── */
+.avmenu-bg { position: fixed; inset: 0; z-index: 150; }
+.avmenu { position: fixed; bottom: 14px; left: 66px; z-index: 151; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 6px; min-width: 190px; box-shadow: 0 12px 40px rgba(20,22,40,.22); display: flex; flex-direction: column; gap: 2px; }
+.avmenu button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 11px; border-radius: 9px; font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.avmenu button:hover { background: var(--panel2); }
+.avmenu button.danger { color: var(--danger); }
+.avmenu button span { width: 18px; text-align: center; }
+
+/* ── modal de configuración ── */
+.segtabs { display: flex; gap: 4px; background: var(--panel2); border-radius: 11px; padding: 4px; margin-bottom: 14px; }
+.segtab { flex: 1; padding: 8px; border-radius: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.segtab.on { background: var(--bg); color: var(--accent-ink); box-shadow: 0 1px 3px rgba(20,22,40,.1); }
+.setrow { display: flex; align-items: center; gap: 11px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.setrow.tap { cursor: pointer; border-bottom: 0; }
+.setrow.tap:hover { background: var(--panel2); border-radius: 9px; }
+.setform { background: var(--panel2); border-radius: 12px; padding: 14px; margin: 12px 0; }
+.setadd { display: block; width: 100%; text-align: center; color: var(--accent); font-weight: 600; font-size: 13.5px; padding: 11px; margin: 10px 0 4px; border: 1px dashed var(--line2); border-radius: 11px; }
+.setadd:hover { background: var(--accent-soft); }
+.setcancel { display: block; width: 100%; text-align: center; color: var(--muted); font-size: 12.5px; padding: 8px; margin-top: 4px; }
+.cfg-note2 { font-size: 11.5px; color: var(--muted); line-height: 1.5; background: var(--panel2); border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
+.hchip { padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; min-width: 30px; }
