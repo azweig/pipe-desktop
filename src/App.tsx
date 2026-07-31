@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, getThreadBefore, getThreadSync, getPerson, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, isDesktopApp, Thread, Msg } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -632,7 +632,7 @@ export default function App() {
       }} />
       : pane === "radar" ? <Radar onOpen={openByKey} onDraft={openWithDraft} />
       : pane === "notas" ? <Notas />
-      : pane === "contactos" ? <Contactos threads={threads} onOpen={openByKey} />
+      : pane === "contactos" ? <Contactos threads={threads} onOpen={openByKey} onToast={setToast} onMerged={refreshThreads} />
       : <>
 
       {/* sidebar */}
@@ -1256,8 +1256,35 @@ function NoteCard({ n, onAct, junk }: { n: any; onAct: (id: string, a: string) =
     </div>
   )
 }
+// ── CLIP: un link / mensaje ORIGINAL que te guardaste (thread='self'). Muestra el dominio (clickeable), el título, el texto
+// original y, si es foto/doc, la media. Acciones fijar/archivar via /api/clip/pin + /api/clip/archive (igual que la web). ──
+const CLIP_ICON: Record<string, string> = { link: "🔗", text: "💡", todo: "✅", photo: "🖼", video: "🎥", audio: "🎤", doc: "📄" }
+const CLIP_TABS: [string, string][] = [["all", "Todo"], ["link", "🔗 Links"], ["text", "💡 Notas"], ["media", "📸 Media"], ["archived", "🗄 Archivados"]]
+function ClipCard({ c, onPin, onArchive }: { c: any; onPin: (id: string, on: boolean) => void; onArchive: (id: string, on: boolean) => void }) {
+  const dom = c.url ? ((c.url.match(/https?:\/\/([^/]+)/) || [])[1] || "link").replace(/^www\./, "") : ""
+  const title = c.title || c.text || "Clip"
+  const openIt = () => { if (c.url) openExternal(c.url) } // abre el LINK en el navegador del sistema
+  const stop = (e: React.MouseEvent) => e.stopPropagation()
+  return (
+    <div className={"clipcard" + (c.pinned ? " pinned" : "") + (c.url ? " tap" : "")} onClick={openIt}>
+      <div className="clipic">{c.pinned ? "📌" : (CLIP_ICON[c.kind] || "📌")}</div>
+      <div className="clipbody">
+        <div className="cliptitle">{title}</div>
+        {c.para ? <div className="ntcpara">{c.para}</div> : (!c.enriched ? <div className="ntcpara" style={{ opacity: .6 }}>analizando…</div> : null)}
+        {c.text && c.text !== title ? <div className="cliporig">{c.text}</div> : null}
+        {c.kind === "doc" && c.media ? <div style={{ marginTop: 8 }} onClick={stop}><FileCard path={c.media} filename={c.title || "Documento"} /></div> : null}
+        {c.kind === "photo" && c.media ? <NoteImg path={c.media} /> : null}
+        <div className="clipmeta">{dom ? <a className="clipdom" onClick={(e) => { e.stopPropagation(); openExternal(c.url) }}>🔗 {dom}</a> : null}<span>{ago(c.ts)}</span></div>
+      </div>
+      <div className="clipacts" onClick={stop}>
+        <button className="ntcbtn" onClick={() => onPin(c.id, !c.pinned)} data-tip={c.pinned ? "Desfijar" : "Fijar arriba"} style={c.pinned ? { color: "var(--accent)" } : undefined}>📌</button>
+        <button className="ntcbtn" onClick={() => onArchive(c.id, !c.archived)} data-tip={c.archived ? "Desarchivar" : "Archivar"}>{c.archived ? "↩" : "🗄"}</button>
+      </div>
+    </div>
+  )
+}
 function Notas() {
-  const [mode, setMode] = useState<"feed" | "chat">("feed")
+  const [mode, setMode] = useState<"feed" | "clips" | "chat">("feed")
   const [dig, setDig] = useState<any>(null)
   const [items, setItems] = useState<any[]>([])
   const [cats, setCats] = useState<any[]>([])
@@ -1269,12 +1296,31 @@ function Notas() {
   const [q, setQ] = useState("")
   const [asking, setAsking] = useState(false)
   const chatRef = useRef<HTMLDivElement>(null)
+  // CLIPS: los links / mensajes originales guardados. Se cargan al entrar a la pestaña, paginables hacia atrás.
+  const [clips, setClips] = useState<any[]>([])
+  const [clipKind, setClipKind] = useState("all")
+  const [clipMore, setClipMore] = useState(false)
+  const [clipLoading, setClipLoading] = useState(false)
+  const [clipsInit, setClipsInit] = useState(false)
   const loadList = async (c: string, s: string) => { const nl = await getNotes(c, s).catch(() => null); if (nl) { setItems(nl.items || []); if (nl.categories) setCats(nl.categories); if (nl.junk != null) setJunk(nl.junk) } }
+  const loadClips = async (kind: string) => {
+    setClipKind(kind); setClipLoading(true)
+    const r = await getNotesClips(kind, 0).catch(() => null)
+    setClips((r && r.items) || []); setClipMore(!!(r && r.hasMore)); setClipLoading(false)
+  }
+  const moreClips = async () => {
+    const oldest = clips.length ? clips[clips.length - 1].ts : 0
+    const r = await getNotesClips(clipKind, oldest).catch(() => null)
+    setClips((c) => [...c, ...((r && r.items) || [])]); setClipMore(!!(r && r.hasMore))
+  }
+  const onClipPin = async (id: string, on: boolean) => { setClips((cur) => cur.map((c) => c.id === id ? { ...c, pinned: on } : c)); await clipPin(id, on).catch(() => {}) }
+  const onClipArchive = async (id: string, on: boolean) => { setClips((cur) => cur.filter((c) => c.id !== id)); await clipArchive(id, on).catch(() => {}) } // sale de la vista actual (archivar o desarchivar desde la pestaña de archivados)
   useEffect(() => {
     Promise.all([getNotesDigest().catch(() => ({})), getNotesChat().catch(() => ({}))]).then(([dg, ch]: any[]) => { setDig(dg || {}); setChat((ch && ch.history) || []) })
     loadList("all", "active").finally(() => setLoading(false))
   }, [])
   useEffect(() => { loadList(cat, status) }, [cat, status])
+  useEffect(() => { if (mode === "clips" && !clipsInit) { setClipsInit(true); loadClips("all") } }, [mode])
   const send = async (preset?: string) => {
     const txt = (preset || q).trim(); if (!txt) return
     setQ(""); setChat((c) => [...c, { role: "user", text: txt }]); setAsking(true)
@@ -1288,8 +1334,20 @@ function Notas() {
   }
   return (
     <div className="pane">
-      <div className="panehead"><h1>Notas</h1><div className="ntmodes"><button className={mode === "feed" ? "on" : ""} onClick={() => setMode("feed")}>📝 Notas</button><button className={mode === "chat" ? "on" : ""} onClick={() => setMode("chat")}>💬 Preguntar</button></div></div>
-      {mode === "feed" ? (
+      <div className="panehead"><h1>Notas</h1><div className="ntmodes"><button className={mode === "feed" ? "on" : ""} onClick={() => setMode("feed")}>📝 Notas</button><button className={mode === "clips" ? "on" : ""} onClick={() => setMode("clips")}>🔗 Clips</button><button className={mode === "chat" ? "on" : ""} onClick={() => setMode("chat")}>💬 Preguntar</button></div></div>
+      {mode === "clips" ? (
+        <div className="panebody">
+          <div className="ntcats">
+            {CLIP_TABS.map(([k, l]) => <button key={k} className={"ntcat" + (clipKind === k ? " on" : "")} onClick={() => loadClips(k)}>{l}</button>)}
+          </div>
+          {clipLoading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div> : (
+            clips.length ? (<>
+              {clips.map((c: any) => <ClipCard key={c.id} c={c} onPin={onClipPin} onArchive={onClipArchive} />)}
+              {clipMore ? <button className="mbtn ghost" style={{ width: "100%", marginTop: 4 }} onClick={moreClips}>Cargar más</button> : null}
+            </>) : <div className="center" style={{ height: 140, color: "var(--muted)", textAlign: "center" }}>No hay clips acá.<br />Mandate un link o una idea a vos mismo y aparece aquí.</div>
+          )}
+        </div>
+      ) : mode === "feed" ? (
         <div className="panebody">
           {loading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div> : (<>
             {dig && (dig.reflexion || dig.resumen) ? (
@@ -1327,24 +1385,49 @@ function Notas() {
 }
 
 // ── CONTACTOS: directorio (desde los hilos) + perfil (getPerson: bio/temas/datos/canales/stats). ──
-function Contactos({ threads, onOpen }: { threads: Thread[]; onOpen: (key: string, name?: string, photo?: string) => void }) {
+function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; onOpen: (key: string, name?: string, photo?: string) => void; onToast: (msg: string) => void; onMerged: () => void }) {
   const [q, setQ] = useState("")
   const [selName, setSelName] = useState<string | null>(null)
   const [p, setP] = useState<any>(null)
   const [pLoading, setPLoading] = useState(false)
+  // MODO SELECCIÓN: elegir 2+ contactos y fusionarlos (dedupe). El primero seleccionado es el que se CONSERVA.
+  const [selMode, setSelMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [merging, setMerging] = useState(false)
   const people = threads
     .filter((t) => t.key !== "self" && !((t as any).espacio) && t.bucket !== "spam")
     .filter((t) => { const nq = q.trim().toLowerCase(); if (!nq) return true; return (`${t.name || ""} ${t.email || ""} ${t.key || ""}`).toLowerCase().includes(nq) })
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es"))
   const selThread = threads.find((t) => t.name === selName)
   const openProfile = (t: Thread) => { setSelName(t.name); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
+  const toggleSel = (key: string) => setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const exitSel = () => { setSelMode(false); setSelected(new Set()) }
+  // claves seleccionadas EN EL ORDEN de la lista → target = la 1ra (la que se conserva), el resto se absorbe.
+  const selKeys = people.filter((t) => selected.has(t.key)).map((t) => t.key)
+  const targetName = people.find((t) => t.key === selKeys[0])?.name || ""
+  const doMerge = async () => {
+    if (selKeys.length < 2 || merging) return
+    const [target, ...rest] = selKeys
+    setMerging(true)
+    const r = await mergeContacts(target, rest).catch(() => null)
+    setMerging(false); exitSel()
+    onMerged() // refresca la lista de hilos en el padre
+    onToast(r ? `✅ ${selKeys.length} contactos fusionados` : "No se pudo fusionar — probá de nuevo")
+  }
   return (
     <div className="ctdir">
       <div className="ctlist">
         <div className="search" style={{ margin: "0 0 10px" }}><span style={{ opacity: .6 }}>🔎</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar contacto…" />{q ? <span onClick={() => setQ("")} style={{ cursor: "pointer", opacity: .6 }}>✕</span> : null}</div>
-        <div className="ctcount">{people.length} contactos</div>
+        <div className="ctcount"><span>{people.length} contactos</span><button className="ctselbtn" onClick={() => selMode ? exitSel() : setSelMode(true)}>{selMode ? "Cancelar" : "Seleccionar"}</button></div>
+        {selMode ? (
+          <div className="ctmergebar">
+            <span className="ctmergeinfo">{selKeys.length < 2 ? "Elegí 2 o más para fusionar" : <>Fusionar {selKeys.length} · se conserva <b>{targetName}</b></>}</span>
+            <button className="mbtn" style={{ flex: "0 0 auto", padding: "8px 14px" }} disabled={selKeys.length < 2 || merging} onClick={doMerge}>{merging ? "Fusionando…" : "🔗 Fusionar"}</button>
+          </div>
+        ) : null}
         {people.map((t) => (
-          <div key={t.key} className={"ctrow" + (selName === t.name ? " on" : "")} onClick={() => openProfile(t)}>
+          <div key={t.key} className={"ctrow" + (!selMode && selName === t.name ? " on" : "") + (selMode && selected.has(t.key) ? " sel" : "")} onClick={() => selMode ? toggleSel(t.key) : openProfile(t)}>
+            {selMode ? <input type="checkbox" className="ctcheck" checked={selected.has(t.key)} onChange={() => toggleSel(t.key)} onClick={(e) => e.stopPropagation()} /> : null}
             <Avatar name={t.name} photo={t.photo} size={38} />
             <div className="ctmid"><div className="ctname">{t.name}</div><div className="ctsub">{(t.channels || []).map((c) => CH[c]?.label || c).join(" · ") || (t.group ? "Grupo" : "")}</div></div>
           </div>

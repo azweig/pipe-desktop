@@ -368,6 +368,20 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .ntctitle { font-size: 14px; font-weight: 600; line-height: 1.4; }
 .ntcpara { font-size: 12.5px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
 .ntcimg { max-width: 240px; max-height: 220px; border-radius: 10px; margin-top: 9px; display: block; }
+/* ── Clips (links / mensajes originales guardados) ── */
+.clipcard { display: flex; gap: 11px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 12px 14px; margin-bottom: 10px; }
+.clipcard.tap { cursor: pointer; }
+.clipcard.tap:hover { border-color: var(--accent); }
+.clipcard.pinned { border-color: #ddd9fb; background: var(--accent-soft); }
+.clipic { font-size: 18px; flex-shrink: 0; line-height: 1.4; }
+.clipbody { flex: 1; min-width: 0; }
+.cliptitle { font-size: 14px; font-weight: 600; line-height: 1.4; word-break: break-word; }
+.cliporig { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 96px; overflow: hidden; }
+.clipmeta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--muted2); }
+.clipdom { color: var(--accent-ink); cursor: pointer; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.clipdom:hover { text-decoration: underline; }
+.clipacts { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+
 .ntchatwrap { flex: 1; min-height: 0; display: flex; flex-direction: column; max-width: 760px; width: 100%; margin: 0 auto; }
 .ntchat { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 8px; display: flex; flex-direction: column; gap: 8px; }
 .ntquick { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
@@ -385,10 +399,17 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 /* ── Contactos (directorio + perfil) ── */
 .ctdir { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; overflow: hidden; background: var(--bg); }
 .ctlist { border-right: 1px solid var(--line); overflow-y: auto; padding: 16px 14px; }
-.ctcount { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted2); margin: 4px 4px 10px; }
+.ctcount { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted2); margin: 4px 4px 10px; }
+.ctselbtn { font-size: 11px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--accent-ink); background: var(--accent-soft); padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+.ctselbtn:hover { background: #e2e4fd; }
+.ctmergebar { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 8px 10px; margin: 0 2px 10px; }
+.ctmergeinfo { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.ctmergeinfo b { color: var(--ink); }
+.ctcheck { width: 17px; height: 17px; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
 .ctrow { display: flex; gap: 11px; align-items: center; padding: 9px 10px; border-radius: 11px; cursor: pointer; }
 .ctrow:hover { background: var(--panel); }
 .ctrow.on { background: var(--accent-soft); }
+.ctrow.sel { background: var(--accent-soft); }
 .ctmid { min-width: 0; }
 .ctname { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctsub { font-size: 11.5px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

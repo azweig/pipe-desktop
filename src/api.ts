@@ -72,6 +72,14 @@ export const getNotes = (cat = "all", status = "active") => j("/api/notes/list?c
 export const getNotesChat = () => j("/api/notes/chat")
 export const notesChat = (q: string) => j("/api/notes/chat", { method: "POST", body: JSON.stringify({ q }) })
 export const noteAction = (id: string, action: string) => j("/api/notes/action", { method: "POST", body: JSON.stringify({ id, action }) })
+// ── CLIPS (los LINKS y mensajes ORIGINALES que te guardaste a vos mismo) — paridad con la web ──
+// lista paginada hacia atrás por tipo (all|link|text|media|todo|archived) → { items, hasMore, oldest }
+export const getNotesClips = (kind = "all", before = 0) =>
+  j("/api/notes/clips?kind=" + encodeURIComponent(kind) + "&before=" + (before || 0) + "&limit=40")
+// acciones de un clip (igual que la web): fijar arriba / archivar. Persisten en la tabla `clips`.
+// OJO: los clips NO usan /api/notes/action (eso opera sobre note_meta = las tarjetas de nota); usan estos endpoints dedicados.
+export const clipPin = (id: string, on: boolean) => j("/api/clip/pin", { method: "POST", body: JSON.stringify({ id, on }) })
+export const clipArchive = (id: string, on: boolean) => j("/api/clip/archive", { method: "POST", body: JSON.stringify({ id, on }) })
 export const getGroups = () => j("/api/groups")
 export const getCalendar = (view = "semana", date = "") => j("/api/calendar?view=" + view + (date ? "&date=" + date : ""))
 export const getMeeting = (id: string) => j("/api/meeting?id=" + encodeURIComponent(id))
@@ -84,6 +92,9 @@ export const setCovert = (key: string, pass: string, style: string) => j("/api/c
 // abrir un link en el navegador del sistema (no dentro del webview)
 export const openExternal = (url: string) => invoke("open_url", { url }).catch(() => {})
 export const setPin = (key: string, pinned: boolean) => j("/api/contact/pin", { method: "POST", body: JSON.stringify({ key, pinned }) })
+// fusionar contactos duplicados en uno solo: `target` = la clave que se CONSERVA; `keys` = las otras que se absorben. → { moved }
+export const mergeContacts = (target: string, keys: string[]): Promise<{ moved?: number }> =>
+  j("/api/contact/merge", { method: "POST", body: JSON.stringify({ target, keys }) })
 export const setArchive = (key: string, on = true) => j("/api/contact/archive", { method: "POST", body: JSON.stringify({ key, on }) })
 // silenciar/reactivar un contacto (ruido que no es spam → pestaña "Silenciados")
 export const setSilence = (key: string, on = true) => j("/api/contact/silence", { method: "POST", body: JSON.stringify({ key, on }) })
