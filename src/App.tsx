@@ -712,9 +712,12 @@ export default function App() {
             <span className="ico">{c.ico}</span>{c.label}{counts[c.id] ? <span className="n">{counts[c.id]}</span> : null}
           </div>
         ))}
-        <div className="grp">Espacios</div>
-        <div className="navitem"><span className="ico">◆</span>Colegio</div>
-        <div className="navitem"><span className="ico">◆</span>Gravity</div>
+        {threads.some((t: any) => t.espacio) ? <>
+          <div className="grp">Espacios</div>
+          {threads.filter((t: any) => t.espacio).map((t) => (
+            <div key={t.key} className={"navitem" + (sel?.key === t.key ? " on" : "")} onClick={() => open(t)}><span className="ico">◆</span>{t.name}</div>
+          ))}
+        </> : null}
         <div className="grp">Canales <span className="sep">Separar</span></div>
         {["whatsapp", "teams", "email", "telegram"].map((c) => (
           <div key={c} className="chan" style={{ cursor: "pointer" }} onClick={() => setChOff((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n })}>
