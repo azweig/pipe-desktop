@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -954,8 +954,48 @@ function AutopilotPolicyModal({ onClose, onSaved }: { onClose: () => void; onSav
           <button className="mbtn" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</button>
           <button className="mbtn ghost" onClick={onClose} disabled={saving}>Cerrar</button>
         </div>
+        <div style={{ height: 1, background: "var(--line)", margin: "20px 0 4px" }} />
+        <CouncilConfig onSaved={onSaved} />
       </>)}
     </div></div>
+  )
+}
+// 🧠 COUNCIL: varios modelos locales redactan y un chairman elige el mejor. Config compartida con web/mobile (/api/autopilot/council).
+function CouncilConfig({ onSaved }: { onSaved: (m: string) => void }) {
+  const [c, setC] = useState<Council | null>(null)
+  const [mem, setMem] = useState<Set<string>>(new Set())
+  const [chair, setChair] = useState("")
+  const [on, setOn] = useState(false)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { getCouncil().then((r) => { setC(r); setMem(new Set(r.members || [])); setChair(r.chairman || ""); setOn(!!r.enabled) }).catch(() => {}) }, [])
+  const avail = (c?.available || []).filter((m) => !/deepseek|embed|:3b/.test(m))
+  const toggleM = (m: string) => setMem((p) => { const n = new Set(p); n.has(m) ? n.delete(m) : n.add(m); return n })
+  const save = async () => {
+    const members = [...mem]
+    if (on && members.length < 2) { alert("Elegí al menos 2 modelos para el council."); return }
+    setSaving(true)
+    const r = await setCouncil({ enabled: on, members, chairman: chair }).catch(() => null)
+    setSaving(false)
+    onSaved(r ? "✓ Council guardado" : "No se pudo guardar el council")
+  }
+  if (!c) return <div className="center" style={{ height: 40 }}><div className="spin" /></div>
+  return (
+    <div>
+      <label className="modallabel" style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 15, cursor: "pointer", margin: "4px 0 6px" }}>
+        <input type="checkbox" checked={on} onChange={() => setOn(!on)} /> 🧠 Council de modelos</label>
+      <p className="modalsub" style={{ margin: "0 0 8px" }}>Varios modelos locales redactan y uno elige el mejor. Más calidad, pero más lento. Elegí 2+.</p>
+      {avail.length ? avail.map((m) => (
+        <label key={m} className="modallabel" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 7, fontSize: 13.5 }}>
+          <input type="checkbox" checked={mem.has(m)} onChange={() => toggleM(m)} /> {m}
+        </label>
+      )) : <div className="modalsub">No hay modelos locales (GPU box) disponibles.</div>}
+      <label className="modallabel" style={{ marginTop: 8 }}>Chairman (el que elige)</label>
+      <select value={chair} onChange={(e) => setChair(e.target.value)} className="modalinput">
+        <option value="">(automático)</option>
+        {avail.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <div className="modalrow" style={{ marginTop: 12 }}><button className="mbtn" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar council"}</button></div>
+    </div>
   )
 }
 // ⚙️ Configuración: canales/cuentas · motor de IA (BYOK) · notificaciones. Mismos endpoints que web/mobile.

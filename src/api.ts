@@ -183,6 +183,10 @@ export type AutopilotPolicy = { presets: string[]; custom: string[]; presets_ava
 export const getAutopilotPolicy = (): Promise<AutopilotPolicy> => j("/api/autopilot/policy")
 export const setAutopilotPolicy = (presets: string[], custom: string[]): Promise<AutopilotPolicy> =>
   j("/api/autopilot/policy", { method: "POST", body: JSON.stringify({ presets, custom }) })
+export type Council = { enabled: boolean; members: string[]; chairman: string; available?: string[] }
+export const getCouncil = (): Promise<Council> => j("/api/autopilot/council")
+export const setCouncil = (c: { enabled: boolean; members: string[]; chairman: string }): Promise<Council> =>
+  j("/api/autopilot/council", { method: "POST", body: JSON.stringify(c) })
 // IMPORT WhatsApp: el usuario elige un export (.txt = solo texto / .zip = con fotos y audios) con el diálogo nativo.
 // El archivo se lee en Rust (read_file_b64) → base64 → se sube por hub_upload como cuerpo crudo (text/plain o application/zip).
 export const readFileB64 = (path: string): Promise<string> => invoke("read_file_b64", { path }) as Promise<string>
