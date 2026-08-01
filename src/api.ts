@@ -124,8 +124,8 @@ export const setCovert = (key: string, pass: string, style: string) => j("/api/c
 export const openExternal = (url: string) => invoke("open_url", { url }).catch(() => {})
 export const setPin = (key: string, pinned: boolean) => j("/api/contact/pin", { method: "POST", body: JSON.stringify({ key, pinned }) })
 // fusionar contactos duplicados en uno solo: `target` = la clave que se CONSERVA; `keys` = las otras que se absorben. → { moved }
-export const mergeContacts = (target: string, keys: string[]): Promise<{ moved?: number }> =>
-  j("/api/contact/merge", { method: "POST", body: JSON.stringify({ target, keys }) })
+export const mergeContacts = (target: string, keys: string[], extra: { canonical?: string; aliases?: string[] } = {}): Promise<{ moved?: number; aliased?: number }> =>
+  j("/api/contact/merge", { method: "POST", body: JSON.stringify({ target, keys, ...extra }) })
 export const setArchive = (key: string, on = true) => j("/api/contact/archive", { method: "POST", body: JSON.stringify({ key, on }) })
 // silenciar/reactivar un contacto (ruido que no es spam → pestaña "Silenciados")
 export const setSilence = (key: string, on = true) => j("/api/contact/silence", { method: "POST", body: JSON.stringify({ key, on }) })

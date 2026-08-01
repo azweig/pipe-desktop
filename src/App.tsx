@@ -1551,20 +1551,24 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es"))
   const selThread = threads.find((t) => t.name === selName)
   const openProfile = (t: { name: string; key?: string }) => { setSelName(t.name); setSelKey(t.key); setP(null); setPLoading(true); getPerson(t.name).then((r) => setP(r || {})).catch(() => setP({})).finally(() => setPLoading(false)) }
-  const toggleSel = (key: string) => setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const exitSel = () => { setSelMode(false); setSelected(new Set()) }
-  // claves seleccionadas EN EL ORDEN de la lista → target = la 1ra (la que se conserva), el resto se absorbe.
-  // solo contactos CON hilo (key) se pueden fusionar; los del vault sin conversación no tienen clave que mover.
-  const selKeys = people.filter((t) => t.key && selected.has(t.key)).map((t) => t.key!)
-  const targetName = people.find((t) => t.key === selKeys[0])?.name || ""
+  // id de selección: hilo → su key; contacto del vault SIN hilo → "contact:<nombre>" (así TODOS son seleccionables, no solo los que tienen conversación)
+  const idOf = (t: Contact) => t.key || ("contact:" + t.name)
+  const selItems = people.filter((t) => selected.has(idOf(t)))
+  // target = el que se CONSERVA: preferimos uno CON hilo (para que los mensajes tengan hogar); si no, el 1ro. canonical = su nombre.
+  const targetItem = selItems.find((t) => t.key) || selItems[0]
+  const targetName = targetItem?.name || ""
   const doMerge = async () => {
-    if (selKeys.length < 2 || merging) return
-    const [target, ...rest] = selKeys
+    if (selItems.length < 2 || merging || !targetItem) return
+    const target = targetItem.key || targetItem.name
+    const keys = selItems.filter((t) => t.key && (t.key !== targetItem.key)).map((t) => t.key!) // hilos-fuente cuyos mensajes se mueven
+    const aliases = selItems.map((t) => t.name) // TODOS los nombres → el backend registra alias (canonical se ignora solo)
     setMerging(true)
-    const r = await mergeContacts(target, rest).catch(() => null)
+    const r = await mergeContacts(target, keys, { canonical: targetName, aliases }).catch(() => null)
     setMerging(false); exitSel()
     onMerged() // refresca la lista de hilos en el padre
-    onToast(r ? `✅ ${selKeys.length} contactos fusionados` : "No se pudo fusionar — probá de nuevo")
+    onToast(r ? `✅ ${selItems.length} contactos fusionados en ${targetName}` : "No se pudo fusionar — probá de nuevo")
   }
   return (
     <div className="ctdir">
@@ -1573,13 +1577,13 @@ function Contactos({ threads, onOpen, onToast, onMerged }: { threads: Thread[]; 
         <div className="ctcount"><span>{people.length} contactos</span><button className="ctselbtn" onClick={() => selMode ? exitSel() : setSelMode(true)}>{selMode ? "Cancelar" : "Seleccionar"}</button></div>
         {selMode ? (
           <div className="ctmergebar">
-            <span className="ctmergeinfo">{selKeys.length < 2 ? "Elegí 2 o más para fusionar" : <>Fusionar {selKeys.length} · se conserva <b>{targetName}</b></>}</span>
-            <button className="mbtn" style={{ flex: "0 0 auto", padding: "8px 14px" }} disabled={selKeys.length < 2 || merging} onClick={doMerge}>{merging ? "Fusionando…" : "🔗 Fusionar"}</button>
+            <span className="ctmergeinfo">{selItems.length < 2 ? "Elegí 2 o más para fusionar" : <>Fusionar {selItems.length} · se conserva <b>{targetName}</b></>}</span>
+            <button className="mbtn" style={{ flex: "0 0 auto", padding: "8px 14px" }} disabled={selItems.length < 2 || merging} onClick={doMerge}>{merging ? "Fusionando…" : "🔗 Fusionar"}</button>
           </div>
         ) : null}
         {people.map((t) => (
-          <div key={t.key || t.name} className={"ctrow" + (!selMode && selName === t.name ? " on" : "") + (selMode && t.key && selected.has(t.key) ? " sel" : "") + (selMode && !t.key ? " dis" : "")} onClick={() => selMode ? (t.key && toggleSel(t.key)) : openProfile(t)}>
-            {selMode ? (t.key ? <input type="checkbox" className="ctcheck" checked={selected.has(t.key)} onChange={() => toggleSel(t.key!)} onClick={(e) => e.stopPropagation()} /> : <span className="ctcheck" style={{ opacity: .25 }} />) : null}
+          <div key={idOf(t)} className={"ctrow" + (!selMode && selName === t.name ? " on" : "") + (selMode && selected.has(idOf(t)) ? " sel" : "")} onClick={() => selMode ? toggleSel(idOf(t)) : openProfile(t)}>
+            {selMode ? <input type="checkbox" className="ctcheck" checked={selected.has(idOf(t))} onChange={() => toggleSel(idOf(t))} onClick={(e) => e.stopPropagation()} /> : null}
             <Avatar name={t.name} photo={t.photo} size={38} />
             <div className="ctmid"><div className="ctname">{t.name}</div><div className="ctsub">{(t.channels || []).map((c) => CH[c]?.label || c).join(" · ") || (t.group ? "Grupo" : t.role || "Contacto")}</div></div>
           </div>
@@ -1669,7 +1673,7 @@ function ContactEnrich({ contactKey, name, onToast }: { contactKey: string; name
   useEffect(() => {
     getContactSocial(contactKey).then((r) => { setData(r || null); setLinks((r && r.links) || {}) }).catch(() => {})
   }, [contactKey])
-  const saveLinks = async () => { await setContactLinks(contactKey, links).catch(() => {}) }
+  const saveLinks = async (toast = false) => { await setContactLinks(contactKey, links).catch(() => {}); if (toast) onToast("✓ Links guardados") }
   const investigate = async () => {
     setBusy(true)
     const r = await investigateContact(contactKey, links).catch(() => null)
@@ -1689,11 +1693,14 @@ function ContactEnrich({ contactKey, name, onToast }: { contactKey: string; name
           <div key={k} className="enrfield">
             <span className="enricon">{icon}</span>
             <input className="enrinput" placeholder={ph} value={links[k] || ""} spellCheck={false} autoCapitalize="none"
-              onChange={(e) => setLinks((s) => ({ ...s, [k]: e.target.value }))} onBlur={saveLinks} />
+              onChange={(e) => setLinks((s) => ({ ...s, [k]: e.target.value }))} onBlur={() => saveLinks(false)} />
           </div>
         ))}
       </div>
-      <button className="mbtn" style={{ marginTop: 12 }} onClick={investigate} disabled={busy}>{busy ? "Investigando…" : "🔍 Investigar"}</button>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button className="mbtn ghost" style={{ flex: 1 }} onClick={() => saveLinks(true)} disabled={busy}>💾 Guardar</button>
+        <button className="mbtn" style={{ flex: 1 }} onClick={investigate} disabled={busy}>{busy ? "Investigando…" : "🔍 Investigar"}</button>
+      </div>
       {busy ? <div className="center" style={{ height: 60, gap: 10 }}><div className="spin" /><span style={{ color: "var(--muted)", fontSize: 12.5 }}>Investigando…</span></div> : null}
       {!busy && prof ? (<>
         {prof.summary ? <><div className="ctpgrp">Resumen</div><div className="cbox">{prof.summary}</div></> : null}
