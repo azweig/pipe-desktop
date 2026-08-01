@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -232,7 +232,7 @@ const CATS = [
   { id: "silenciados", ico: "🔕", label: "Silenciados", bucket: "" },
 ]
 
-type Pane = "home" | "mensajes" | "calendario" | "radar" | "objetivos" | "jarvis" | "notas" | "espacios" | "contactos"
+type Pane = "home" | "mensajes" | "calendario" | "radar" | "objetivos" | "jarvis" | "notas" | "espacios" | "contactos" | "entrena"
 // historial de Jarvis a nivel de módulo → persiste al cambiar de pane y se puede sembrar desde la Home (igual que la web)
 let jarvisHistory: { role: "me" | "ai"; text: string }[] = []
 
@@ -679,6 +679,7 @@ export default function App() {
         <button className={"tipright" + (pane === "notas" ? " on" : "")} onClick={() => setPane("notas")} data-tip="Notas">📄</button>
         <button className={"tipright" + (pane === "espacios" ? " on" : "")} onClick={() => setPane("espacios")} data-tip="Espacios">◆</button>
         <button className={"tipright" + (pane === "contactos" ? " on" : "")} onClick={() => setPane("contactos")} data-tip="Contactos">👤</button>
+        <button className={"tipright" + (pane === "entrena" ? " on" : "")} onClick={() => setPane("entrena")} data-tip="Entrená tu IA">🎓</button>
         <div className="spacer" />
         <button className="me tipright" data-tip="Cuenta y ajustes" onClick={() => setAvatarMenu((v) => !v)}>AZ</button>
       </div>
@@ -703,6 +704,8 @@ export default function App() {
       : pane === "notas" ? <Notas />
       : pane === "espacios" ? <Espacios onOpen={openByKey} />
       : pane === "contactos" ? <Contactos threads={threads} onOpen={openByKey} onToast={setToast} onMerged={refreshThreads} />
+      : pane === "entrena" ? <TrainDeck onToast={setToast} />
+
       : <>
 
       {/* sidebar */}
@@ -995,6 +998,49 @@ function CouncilConfig({ onSaved }: { onSaved: (m: string) => void }) {
         {avail.map((m) => <option key={m} value={m}>{m}</option>)}
       </select>
       <div className="modalrow" style={{ marginTop: 12 }}><button className="mbtn" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar council"}</button></div>
+    </div>
+  )
+}
+// 🎓 ENTRENÁ TU IA — mazo de corrección: mensaje real + lo que tu IA respondería → aprobás (✓) o corregís (✍️). Cada corrección la entrena.
+function TrainDeck({ onToast }: { onToast: (m: string) => void }) {
+  const [card, setCard] = useState<TrainCard | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [fix, setFix] = useState("")
+  const [count, setCount] = useState(0)
+  const next = async () => { setLoading(true); setEditing(false); const c = await getTrainCard().catch(() => ({ error: "x" } as TrainCard)); setCard(c); setFix(c.draft || ""); setLoading(false) }
+  useEffect(() => { next() }, [])
+  const ok = async () => { if (card?.key) await autopilotFeedback(card.key, true, "", card.draft || "").catch(() => {}); setCount((n) => n + 1); next() }
+  const save = async () => { const t = fix.trim(); if (!t || !card?.key) return; await autopilotFeedback(card.key, false, t, card.draft || "").catch(() => {}); onToast("✓ Aprendido"); setCount((n) => n + 1); next() }
+  return (
+    <div className="ctprofile" style={{ maxWidth: 640, margin: "0 auto", padding: "26px 22px", overflowY: "auto" }}>
+      <div className="ctpname" style={{ fontSize: 22 }}>🎓 Entrená tu IA</div>
+      <div className="ctprole" style={{ marginBottom: 18 }}>Te muestro un mensaje real y lo que tu IA contestaría. Aprobalo o corregilo — así aprende tu estilo.</div>
+      {loading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div>
+        : !card || card.error ? <div className="cbox">No se pudo cargar. <button className="mbtn ghost" style={{ marginLeft: 8 }} onClick={next}>Reintentar</button></div>
+          : card.none ? <div className="cbox">No hay más mensajes para practicar por ahora — volvé más tarde.</div>
+            : (<div className="cbox" style={{ padding: 16 }}>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}><b>{card.name}</b> — así viene la charla:</div>
+              {(card.context || []).map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: m.mine ? "flex-end" : "flex-start", margin: "3px 0" }}>
+                  <span style={{ maxWidth: "82%", padding: "7px 11px", borderRadius: 13, fontSize: 13.5, background: m.mine ? "var(--accent)" : "var(--panel2)", color: m.mine ? "#fff" : "var(--ink)" }}>{m.text}</span>
+                </div>))}
+              <div style={{ display: "flex", justifyContent: "flex-start", margin: "4px 0" }}>
+                <span style={{ maxWidth: "88%", padding: "8px 12px", borderRadius: 13, fontSize: 14, background: "var(--panel2)", color: "var(--ink)", border: "2px solid var(--accent)" }}>{card.incoming}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "15px 0 6px" }}>🤖 Tu IA respondería:</div>
+              {editing ? <textarea value={fix} onChange={(e) => setFix(e.target.value)} autoFocus className="modalinput" style={{ minHeight: 64, width: "100%", boxSizing: "border-box" }} />
+                : <div style={{ padding: "11px 13px", borderRadius: 12, background: "color-mix(in srgb, var(--accent) 9%, transparent)", fontSize: 14.5, minHeight: 20 }}>{card.draft || <span style={{ color: "var(--muted)" }}>(no pudo redactar — escribí cómo responderías vos)</span>}</div>}
+              <div className="modalrow" style={{ marginTop: 13 }}>
+                {editing ? <button className="mbtn" style={{ flex: 1 }} onClick={save} disabled={!fix.trim()}>💾 Guardar corrección</button>
+                  : (<>
+                    <button className="mbtn ghost" style={{ flex: 1 }} onClick={() => { setFix(card.draft || ""); setEditing(true) }}>✍️ Así lo diría yo</button>
+                    <button className="mbtn" style={{ flex: 1 }} onClick={ok}>✓ Está bien</button>
+                  </>)}
+              </div>
+              {!editing ? <button className="mbtn ghost" style={{ width: "100%", marginTop: 8 }} onClick={next}>⏭️ Saltar este</button> : null}
+              <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", marginTop: 12 }}>{count} {count === 1 ? "corregido" : "corregidos"} en esta sesión · cada uno entrena a tu IA 🧠</div>
+            </div>)}
     </div>
   )
 }

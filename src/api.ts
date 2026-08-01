@@ -178,6 +178,8 @@ export const sendStickerB64 = (key: string, b64: string, mime: string, t?: any) 
 export const getAutopilot = (key: string) => j("/api/autopilot/config?key=" + encodeURIComponent(key))
 export const setAutopilot = (key: string, enabled: boolean, maxPerDay = 0) => j("/api/autopilot/config", { method: "POST", body: JSON.stringify({ key, enabled, maxPerDay }) })
 export const autopilotFeedback = (key: string, good: boolean, correction = "", original = "") => j("/api/autopilot/feedback", { method: "POST", body: JSON.stringify({ key, good, correction, original }) })
+export type TrainCard = { key?: string; name?: string; context?: { mine: boolean; text: string }[]; incoming?: string; draft?: string; none?: boolean; error?: string }
+export const getTrainCard = (): Promise<TrainCard> => j("/api/autopilot/train-card")
 // piloto automático — POLÍTICA GLOBAL (no por-contacto): qué temas escala a vos en vez de responder solo.
 export type AutopilotPolicy = { presets: string[]; custom: string[]; presets_available: string[] }
 export const getAutopilotPolicy = (): Promise<AutopilotPolicy> => j("/api/autopilot/policy")
