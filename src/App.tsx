@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 import { cacheLoad, cacheSave } from "./cache"
 import Calendar from "./Calendar"
@@ -1002,6 +1002,34 @@ function CouncilConfig({ onSaved }: { onSaved: (m: string) => void }) {
   )
 }
 // 🎓 ENTRENÁ TU IA — mazo de corrección: mensaje real + lo que tu IA respondería → aprobás (✓) o corregís (✍️). Cada corrección la entrena.
+// 🗣️ TU VOZ: perfil auto-detectado (idiomas / dialecto-nacionalidad % / tono) de tus mensajes reales.
+function VoiceCard() {
+  const [v, setV] = useState<VoiceProfile | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { getVoiceProfile().then(setV).catch(() => {}) }, [])
+  const build = async () => { setBusy(true); const r = await buildVoiceProfile().catch(() => null); setBusy(false); if (r && !r.error) setV(r) }
+  const has = !!(v && (v.dialect || v.languages || v.summary))
+  const COL = ["#6366f1", "#e0872b", "#22a06b", "#e2483d"]
+  const bars = (arr?: { name: string; pct: number }[], cols = COL) => (arr || []).filter((x) => x.name).map((x, i) => {
+    const p = Math.max(2, Math.min(100, x.pct || 0))
+    return (<div key={i} style={{ margin: "6px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span>{x.name}</span><b>{p}%</b></div>
+      <div style={{ height: 8, borderRadius: 6, background: "var(--panel2)", overflow: "hidden" }}><div style={{ height: "100%", width: p + "%", background: cols[i % cols.length], borderRadius: 6 }} /></div>
+    </div>)
+  })
+  return (
+    <div className="cbox" style={{ padding: 16, marginBottom: 18 }}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>🗣️ Tu voz</div>
+      {has ? (<>
+        {v!.summary ? <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 10 }}>{v!.summary}</div> : null}
+        {(v!.dialect || []).length ? <><div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", letterSpacing: .4, margin: "8px 0 2px" }}>DIALECTO / NACIONALIDAD</div>{bars(v!.dialect)}</> : null}
+        {(v!.languages || []).length ? <><div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", letterSpacing: .4, margin: "12px 0 2px" }}>IDIOMAS</div>{bars(v!.languages, ["#3b82f6", "#8b5cf6", "#22a06b"])}</> : null}
+        {(v!.tone || []).length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>{v!.tone!.map((t, i) => <span key={i} className="ctchip">{t}</span>)}</div> : null}
+      </>) : <div style={{ fontSize: 13, color: "var(--muted)", margin: "6px 0 10px" }}>La IA analiza tus mensajes y detecta tu tonalidad (idiomas, dialecto, tono).</div>}
+      <button className={"mbtn" + (has ? " ghost" : "")} style={{ marginTop: 12 }} onClick={build} disabled={busy}>{busy ? "Analizando…" : has ? "🔄 Re-detectar" : "🗣️ Detectar mi voz"}</button>
+    </div>
+  )
+}
 function TrainDeck({ onToast }: { onToast: (m: string) => void }) {
   const [card, setCard] = useState<TrainCard | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1016,6 +1044,7 @@ function TrainDeck({ onToast }: { onToast: (m: string) => void }) {
     <div className="ctprofile" style={{ maxWidth: 640, margin: "0 auto", padding: "26px 22px", overflowY: "auto" }}>
       <div className="ctpname" style={{ fontSize: 22 }}>🎓 Entrená tu IA</div>
       <div className="ctprole" style={{ marginBottom: 18 }}>Te muestro un mensaje real y lo que tu IA contestaría. Aprobalo o corregilo — así aprende tu estilo.</div>
+      <VoiceCard />
       {loading ? <div className="center" style={{ height: 160 }}><div className="spin" /></div>
         : !card || card.error ? <div className="cbox">No se pudo cargar. <button className="mbtn ghost" style={{ marginLeft: 8 }} onClick={next}>Reintentar</button></div>
           : card.none ? <div className="cbox">No hay más mensajes para practicar por ahora — volvé más tarde.</div>

@@ -180,6 +180,9 @@ export const setAutopilot = (key: string, enabled: boolean, maxPerDay = 0) => j(
 export const autopilotFeedback = (key: string, good: boolean, correction = "", original = "") => j("/api/autopilot/feedback", { method: "POST", body: JSON.stringify({ key, good, correction, original }) })
 export type TrainCard = { key?: string; name?: string; context?: { mine: boolean; text: string }[]; incoming?: string; draft?: string; none?: boolean; error?: string }
 export const getTrainCard = (): Promise<TrainCard> => j("/api/autopilot/train-card")
+export type VoiceProfile = { summary?: string; languages?: { name: string; pct: number }[]; dialect?: { name: string; pct: number }[]; tone?: string[]; traits?: Record<string, string>; error?: string }
+export const getVoiceProfile = (): Promise<VoiceProfile> => j("/api/autopilot/voice")
+export const buildVoiceProfile = (): Promise<VoiceProfile> => j("/api/autopilot/voice", { method: "POST", body: "{}" })
 // piloto automático — POLÍTICA GLOBAL (no por-contacto): qué temas escala a vos en vez de responder solo.
 export type AutopilotPolicy = { presets: string[]; custom: string[]; presets_available: string[] }
 export const getAutopilotPolicy = (): Promise<AutopilotPolicy> => j("/api/autopilot/policy")
