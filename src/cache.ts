@@ -1,6 +1,7 @@
 // Caché local persistente (IndexedDB) — igual que web (IndexedDB) y mobile (expo-sqlite): la historia de cada hilo vive en
 // el disco de la app; de la red solo se baja el DELTA (mensajes con rev > el maxRev que ya tengo). Abrir un hilo = instantáneo.
 import type { Msg } from "./api"
+import { isSecretPinSet } from "./api"
 
 let _db: Promise<IDBDatabase> | null = null
 function idb(): Promise<IDBDatabase> {
@@ -32,10 +33,15 @@ export async function cacheLoad(key: string): Promise<{ items: Msg[]; meta: any 
 }
 // upsert por id (los optimistas "opt-" NO se persisten) + patch de la metadata del hilo
 export async function cacheSave(key: string, items: Msg[], metaPatch?: any) {
+  if (isSecretPinSet()) return // 🔒 con 2º PIN configurado: NUNCA persistir mensajes en disco (una línea oculta no debe quedar en local)
   try {
     const db = await idb()
     const real = (items || []).filter((it) => it && it.id && !String(it.id).startsWith("opt-"))
     if (real.length) { const tx = db.transaction("msgs", "readwrite"); const st = tx.objectStore("msgs"); for (const it of real) st.put({ ...it, t: key }); await txDone(tx) }
     if (metaPatch) { const cur = (await rq<any>(db.transaction("meta").objectStore("meta").get(key))) || { t: key }; const tx = db.transaction("meta", "readwrite"); tx.objectStore("meta").put({ ...cur, ...metaPatch, t: key }); await txDone(tx) }
   } catch {}
+}
+// 🔒 borra de disco TODO rastro de mensajes cacheados (msgs + meta). Se llama al arrancar si hay 2º PIN, y al bloquear.
+export async function cachePurge() {
+  try { const db = await idb(); for (const st of ["msgs", "meta"]) { const tx = db.transaction(st, "readwrite"); tx.objectStore(st).clear(); await txDone(tx) } } catch {}
 }

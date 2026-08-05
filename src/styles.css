@@ -96,6 +96,9 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .bubble { max-width: 62%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.45; margin-bottom: 3px; box-shadow: var(--shadow); white-space: pre-wrap; word-break: break-word; }
 .bubble.in { background: var(--bg); border-bottom-left-radius: 5px; align-self: flex-start; }
 .bubble.out { background: #e8f7ee; border-bottom-right-radius: 5px; align-self: flex-end; }
+/* mensaje de una CUENTA SECRETA (solo visible con el 2º PIN) — SOLO tinte violeta discreto, sin candado ni palabra (no delata a un tercero) */
+.bubble.in.secret { background: var(--accent-soft); }
+.bubble.out.secret { background: #e6e8fd; }
 .bubble .btime { font-size: 10px; color: var(--muted2); margin-top: 3px; text-align: right; }
 .emailcard { background: var(--bg); border: 1px solid var(--line2); border-radius: 12px; padding: 13px 15px; max-width: 78%; align-self: flex-start; box-shadow: var(--shadow); margin-bottom: 4px; }
 .emailcard .et { font-weight: 600; display: flex; align-items: center; gap: 7px; }

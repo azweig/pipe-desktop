@@ -1,7 +1,7 @@
 // Petición al hub desde el lado NATIVO (Rust/reqwest): sin CORS, sin Origin de browser → pasa el gate del hub como el mobile.
 // La UI (webview) llama a este comando por IPC. El sid de sesión viene en el body de /api/auth; se manda como header Cookie.
 #[tauri::command]
-async fn hub_fetch(url: String, method: String, body: Option<String>, cookie: Option<String>) -> Result<serde_json::Value, String> {
+async fn hub_fetch(url: String, method: String, body: Option<String>, cookie: Option<String>, secret: Option<String>) -> Result<serde_json::Value, String> {
   let client = reqwest::Client::builder()
     .user_agent("Pipe-Desktop")
     .build()
@@ -10,6 +10,10 @@ async fn hub_fetch(url: String, method: String, body: Option<String>, cookie: Op
   let mut req = client.request(m, &url).header("Content-Type", "application/json");
   if let Some(c) = cookie {
     if !c.is_empty() { req = req.header("Cookie", format!("sid={}", c)); }
+  }
+  // 🔒 CUENTAS SECRETAS: el token del 2º PIN viaja SIEMPRE por el lado nativo (nunca en fetch del webview). Solo cuando está desbloqueado.
+  if let Some(s) = secret {
+    if !s.is_empty() { req = req.header("x-secret-token", s); }
   }
   if let Some(b) = body { req = req.body(b); }
   let resp = req.send().await.map_err(|e| e.to_string())?;
@@ -21,7 +25,7 @@ async fn hub_fetch(url: String, method: String, body: Option<String>, cookie: Op
 // Sube BINARIO al hub (nota de voz / adjunto): recibe el cuerpo en base64 desde el webview, lo decodifica y POSTea bytes crudos
 // con el Content-Type real (audio/ogg, image/jpeg, …). Sin esto la desktop no podría mandar audios ni archivos (hub_fetch es solo texto).
 #[tauri::command]
-async fn hub_upload(url: String, method: String, content_type: String, body_b64: String, cookie: Option<String>) -> Result<serde_json::Value, String> {
+async fn hub_upload(url: String, method: String, content_type: String, body_b64: String, cookie: Option<String>, secret: Option<String>) -> Result<serde_json::Value, String> {
   use base64::Engine;
   let bytes = base64::engine::general_purpose::STANDARD.decode(body_b64.as_bytes()).map_err(|e| e.to_string())?;
   let client = reqwest::Client::builder().user_agent("Pipe-Desktop").build().map_err(|e| e.to_string())?;
@@ -29,6 +33,10 @@ async fn hub_upload(url: String, method: String, content_type: String, body_b64:
   let mut req = client.request(m, &url).header("Content-Type", content_type).body(bytes);
   if let Some(c) = cookie {
     if !c.is_empty() { req = req.header("Cookie", format!("sid={}", c)); }
+  }
+  // 🔒 CUENTAS SECRETAS: mismo token del 2º PIN en las subidas binarias (audio/adjuntos), solo mientras esté desbloqueado.
+  if let Some(s) = secret {
+    if !s.is_empty() { req = req.header("x-secret-token", s); }
   }
   let resp = req.send().await.map_err(|e| e.to_string())?;
   let status = resp.status().as_u16();

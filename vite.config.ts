@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react"
 // como si fuera de un cliente nativo (sin Origin de browser cross-site) → pasa el gate. La cookie de sesión se reescribe a localhost.
 export default defineConfig({
   plugins: [react()],
+
   server: {
     port: 5175,
     proxy: {

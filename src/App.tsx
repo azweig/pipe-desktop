@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from "react"
-import type { ChangeEvent, UIEvent } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import type { ChangeEvent, UIEvent, ReactNode } from "react"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
-import { cacheLoad, cacheSave } from "./cache"
+// 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
+import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
+import { chooseAndSendMedia, b64ToBlob, mimeFromName } from "./media"
+import { cacheLoad, cacheSave, cachePurge } from "./cache"
 import Calendar from "./Calendar"
 
 const CH: Record<string, { c: string; label: string }> = {
@@ -203,7 +206,7 @@ function Bubble({ m, isGroup, onFeedback }: { m: Msg; isGroup?: boolean; onFeedb
   const fileName = (m as any).filename || (m.text && !PLACEHOLDER.test(m.text) ? m.text : "") || "Documento"
   const caption = m.text && !PLACEHOLDER.test(m.text) ? m.text : ""
   return (
-    <div className={"bubble " + (out ? "out" : "in")}>
+    <div className={"bubble " + (out ? "out" : "in") + (m.secret ? " secret" : "")}>
       {/* en GRUPOS: quién mandó cada mensaje entrante (como cualquier chat grupal), con color por nombre. No en 1:1 ni en salientes. */}
       {!out && isGroup && m.name ? <div className="bsender" style={{ color: colorOf(m.name) }}>{m.name}</div> : null}
       {m.covert ? (
@@ -272,6 +275,18 @@ export default function App() {
   const [syncMsg, setSyncMsg] = useState("")                 // indicador del sync de texto completo ("Guardando historial…")
   const [toast, setToast] = useState("")                     // aviso efímero de éxito (se va solo)
   const [avatarMenu, setAvatarMenu] = useState(false)        // menú del avatar (AZ) abajo-izquierda: Configuración / Cerrar sesión
+  // 🔒 CUENTAS SECRETAS — token en api.ts (memoria); acá el reflejo de UI + estado de cuentas marcadas
+  const [secretUnlocked, setSecretUnlocked] = useState(false)                          // ¿hay sesión secreta abierta ahora? (token presente)
+  const [secretState, setSecretState] = useState<{ accounts: { channel: string; account: string }[]; numbers: string[] } | null>(null)
+  const [pinPrompt, setPinPrompt] = useState<{ title: string; sub: string } | null>(null) // hoja de PIN (crear/ingresar)
+  const secretPinSetRef = useRef(false)                      // ¿hay 2º PIN configurado? (gate para NO cachear en local) — ref para leer fresco en callbacks
+  const secretIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null)   // timer de 5 min inactivo → bloquea
+  const secretBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // debounce de 6s al perder foco
+  const secretUnlockedAtRef = useRef(0)                      // cuándo desbloqueaste (gracia de 1 min contra popups que roban el foco)
+  const selRef = useRef<Thread | null>(null)                 // hilo abierto (para re-pintar al bloquear/desbloquear sin closures viejos)
+  const pinResolveRef = useRef<((v: string | null) => void) | null>(null)    // resuelve la promesa del prompt de PIN
+  const secretLockFnRef = useRef<() => void>(() => {})       // doSecretLock estable para los listeners del effect []-deps
+  const resetSecretIdleRef = useRef<() => void>(() => {})    // resetSecretIdle estable para los listeners de actividad
 
   useEffect(() => {
     if (!getBase()) { setAuthed(false); return } // sin hub configurado → login (con campo de hub)
@@ -280,17 +295,29 @@ export default function App() {
   useEffect(() => {
     if (!authed) return
     const cached = localStorage.getItem("pipe_threads") // la bandeja del último arranque → aparece al instante
-    if (cached) { try { setThreads(JSON.parse(cached)) } catch {} }
+    if (cached && !secretPinSetRef.current) { try { setThreads(JSON.parse(cached)) } catch {} } // 🔒 con 2º PIN: no mostrar cache (puede tener previews ocultos)
     getThreads().then((d) => {
       const arr = Array.isArray(d) ? d : d.threads || []
-      setThreads(arr); try { localStorage.setItem("pipe_threads", JSON.stringify(arr)) } catch {}
+      setThreads(arr); saveThreadsCache(arr)
       setTimeout(() => fullTextSync(arr), 4000) // arranca el backfill de texto completo unos segundos después (UI primero)
+    }).catch(() => {})
+  }, [authed])
+  // 🔒 al arrancar: ¿hay 2º PIN configurado? → modo "no cachear en local" + PURGAR lo que haya quedado (de cuando estaban visibles)
+  useEffect(() => {
+    if (!authed) return
+    getSecretStatus().then((s) => {
+      if (s && s.pinSet) {
+        secretPinSetRef.current = true; setSecretPinSet(true)
+        cachePurge().catch(() => {})
+        try { localStorage.removeItem("pipe_threads") } catch {}
+      }
     }).catch(() => {})
   }, [authed])
 
   const recRef = useRef<{ rec: MediaRecorder; chunks: Blob[]; t0: number; ai: boolean } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const stickerRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = useState(false) // 🖼️ overlay al arrastrar archivos a la conversación
   const syncingRef = useRef(false)
   const ctxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)   // timer del contexto diferido (persona/targets/agenda/encubierto) — se cancela si cambiás de hilo rápido
   const ctxCacheRef = useRef<Map<string, { person: any; targets: any[]; sched: any; covert: string | null; t: number }>>(new Map()) // último contexto por hilo → reabrir el mismo enseguida no re-pide
@@ -304,6 +331,7 @@ export default function App() {
   const notifOkRef = useRef(false)                   // ¿el SO concedió permiso de notificaciones?
   const pendingNotifKeyRef = useRef<string>("")      // hilo de la última notificación (para abrirlo al hacer click)
   useEffect(() => { threadsRef.current = threads }, [threads])
+  useEffect(() => { selRef.current = sel }, [sel]) // 🔒 hilo abierto accesible desde los handlers de bloqueo (sin closures viejos)
   // scroll al FONDO (lo más nuevo) al abrir un hilo o cuando llega un mensaje nuevo; NO al "cargar anteriores" (loadOlder prepende arriba)
   const lastMsgId = msgs.length ? msgs[msgs.length - 1].id : ""
   // auto-scroll al fondo SOLO cuando corresponde: al ABRIR un hilo (siempre), o al llegar un mensaje nuevo PERO solo si el
@@ -327,7 +355,9 @@ export default function App() {
     return () => clearTimeout(id)
   }, [query])
 
-  const refreshThreads = () => getThreads().then((d) => { const arr = Array.isArray(d) ? d : d.threads || []; setThreads(arr); try { localStorage.setItem("pipe_threads", JSON.stringify(arr)) } catch {} }).catch(() => {})
+  // 🔒 persistir la bandeja SOLO si no hay 2º PIN (un preview de una línea oculta no debe quedar en disco)
+  const saveThreadsCache = (arr: Thread[]) => { if (secretPinSetRef.current) return; try { localStorage.setItem("pipe_threads", JSON.stringify(arr)) } catch {} }
+  const refreshThreads = () => getThreads().then((d) => { const arr = Array.isArray(d) ? d : d.threads || []; setThreads(arr); saveThreadsCache(arr) }).catch(() => {})
   // 🤖 buscador con IA: hits el router (⚡ facetas / 🧠 RAG). Muestra una tarjeta arriba de la lista, como mobile/web.
   const runAi = useCallback(async () => {
     const qq = query.trim(); if (!qq) { setAiRes(null); return }
@@ -339,6 +369,7 @@ export default function App() {
   // 💾 SYNC DE TEXTO COMPLETO: baja TODO el texto de TODAS las conversaciones a tu Mac (IndexedDB), en 2do plano.
   // Las imágenes/media quedan on-demand (por link) — solo el texto se guarda entero. Resumible (guarda hasta dónde llegó).
   const fullTextSync = async (list: Thread[]) => {
+    if (secretPinSetRef.current) return // 🔒 con 2º PIN no se archiva nada en local (cacheSave es no-op igual) → evita churn de red inútil
     if (syncingRef.current) return
     syncingRef.current = true
     try {
@@ -392,7 +423,8 @@ export default function App() {
     setSel(t); setShowCtx(false); setDraft(""); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
     setPerson(freshCx ? cx!.person : null); setTargets(freshCx ? cx!.targets : []); setSched(freshCx ? cx!.sched : null); setThreadCovert(freshCx ? cx!.covert : null)
     // 1) LOCAL primero (IndexedDB) → los mensajes viejos aparecen al instante, sin re-descargar
-    const local = await cacheLoad(t.key)
+    // 🔒 con 2º PIN NO uso la cache local: traigo fresco del server (que filtra las líneas ocultas cuando está bloqueado). El server es la única fuente de verdad.
+    const local = secretPinSetRef.current ? { items: [] as Msg[], meta: null as any } : await cacheLoad(t.key)
     const haveLocal = local.items.length > 0
     // hasMore por CANTIDAD (no confío en el flag cacheado: un grupo pudo tener pocos msgs al cachearse y ahora miles) → se auto-corrige en loadOlder
     if (haveLocal) { setMsgs(local.items); setOldestTs(local.items[0]?.ts || 0); setHasMore(local.items.length >= 20); setLoadingThread(false) } else { setMsgs([]); setLoadingThread(true) }
@@ -496,7 +528,7 @@ export default function App() {
         if (!seeding && prev != null && (t.ts || 0) > prev && t.lastDir !== "out") fresh.push(t)
         seen.set(t.key, t.ts || 0)
       }
-      setThreads(arr); try { localStorage.setItem("pipe_threads", JSON.stringify(arr)) } catch {}
+      setThreads(arr); saveThreadsCache(arr)
       if (notifOkRef.current && !focusedRef.current && fresh.length) {
         pendingNotifKeyRef.current = fresh[0].key
         try {
@@ -564,19 +596,51 @@ export default function App() {
   }
   const stopRec = () => recRef.current?.rec.stop()
 
-  // 📎 adjuntar archivo/foto/video real
+  // envía UN blob de media (con burbuja optimista) — lo usan el picker 📎, el collage/recorte y el arrastrar
+  const sendMediaBlob = async (blob: Blob, mime: string, name: string) => {
+    if (!sel) return
+    const kind = /^image\//.test(mime) ? "image" : /^video\//.test(mime) ? "video" : "file"
+    setMsgs((cur) => [...cur, { id: "opt-" + Date.now() + "-" + name, dir: "out", text: kind === "file" ? "📄 " + name : "", ts: Date.now(), channel: target()?.channel, mediaType: kind }])
+    const b64 = await blobToB64(blob).catch(() => "")
+    if (b64) await sendMediaB64(sel.key, b64, mime || "application/octet-stream", name, target()).catch(() => alert("No se pudo enviar " + name))
+  }
+  // 📎 adjuntar — ahora pasa por el selector: 2+ fotos → collage o por separado; 1 foto → recortar; videos/mixto → directo (paridad con mobile/web)
   const onAttach = () => fileRef.current?.click()
   const onFilePicked = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files || [])]; e.target.value = ""; if (!files.length || !sel) return
     setBusy("attach")
-    for (const f of files) { // varias a la vez → una tras otra (en orden, no satura el bridge)
-      const b64 = await blobToB64(f).catch(() => "")
-      const kind = /^image\//.test(f.type) ? "image" : /^video\//.test(f.type) ? "video" : "file"
-      setMsgs((cur) => [...cur, { id: "opt-" + Date.now() + "-" + f.name, dir: "out", text: kind === "file" ? "📄 " + f.name : "", ts: Date.now(), channel: target()?.channel, mediaType: kind }])
-      if (b64) await sendMediaB64(sel.key, b64, f.type || "application/octet-stream", f.name, target()).catch(() => alert("No se pudo enviar " + f.name))
-    }
+    const items = files.map((f) => ({ blob: f as Blob, mime: f.type || mimeFromName(f.name), name: f.name }))
+    await chooseAndSendMedia(items, sendMediaBlob, { channelIsEmail: target()?.channel === "email" })
     setBusy(""); await reloadThread(sel.key)
   }
+  // 🖼️ ARRASTRAR archivos a la conversación (drag-drop nativo de Tauri → da PATHS; los leo en Rust con readFileB64). Solo en el escritorio.
+  useEffect(() => {
+    if (!isDesktopApp || !sel || sel.key === "self") return
+    let un: (() => void) | undefined, cancelled = false
+    import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
+      getCurrentWebview().onDragDropEvent(async (ev: any) => {
+        const p = ev?.payload || {}
+        if (p.type === "enter" || p.type === "over") setDragOver(true)
+        else if (p.type === "leave") setDragOver(false)
+        else if (p.type === "drop") {
+          setDragOver(false)
+          const paths: string[] = p.paths || []
+          setBusy("attach")
+          const items = [] as { blob: Blob; mime: string; name: string }[]
+          for (const path of paths) {
+            const b64 = await readFileB64(path).catch(() => "")
+            if (!b64) continue
+            const name = path.split(/[\\/]/).pop() || "archivo"
+            const mime = mimeFromName(name)
+            items.push({ blob: b64ToBlob(b64, mime), mime, name })
+          }
+          if (items.length) await chooseAndSendMedia(items, sendMediaBlob, { channelIsEmail: target()?.channel === "email" })
+          setBusy(""); await reloadThread(sel.key)
+        }
+      }).then((u: any) => { if (cancelled) u(); else un = u })
+    }).catch(() => {})
+    return () => { cancelled = true; setDragOver(false); if (un) un() }
+  }, [sel?.key])
   // 🩷 mandar una imagen como sticker (el server la convierte a webp 512×512)
   const onSticker = () => stickerRef.current?.click()
   const onStickerPicked = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -639,6 +703,74 @@ export default function App() {
     try { localStorage.removeItem("pipe_threads") } catch {}
     setSel(null); setThreads([]); setMsgs([]); setAuthed(false)
   }
+
+  // ══════════ 🔒 CUENTAS SECRETAS — desbloqueo/creación del 2º PIN, gestor de cuentas, out-of-focus lock ══════════
+  // prompt de PIN (crear/ingresar): promesa que resuelve con el valor tipeado o null si cancela
+  const askPin = (title: string, sub: string) => new Promise<string | null>((resolve) => { pinResolveRef.current = resolve; setPinPrompt({ title, sub }) })
+  const closePin = (v: string | null) => { setPinPrompt(null); const r = pinResolveRef.current; pinResolveRef.current = null; if (r) r(v) }
+  // estado de cuentas/números marcados como secretos (solo con token; el server responde 403 si está bloqueado)
+  const loadSecretState = async () => {
+    if (!getSecretToken()) { setSecretState(null); return null }
+    const s = await getSecretState().catch(() => null)
+    setSecretState(s || null); return s
+  }
+  const resetSecretIdle = () => {
+    if (!getSecretToken()) return
+    if (secretIdleRef.current) clearTimeout(secretIdleRef.current)
+    secretIdleRef.current = setTimeout(() => secretLockFnRef.current(), 5 * 60000) // 5 min inactivo en foco → bloquea
+  }
+  function doSecretLock() {
+    if (!getSecretToken()) return
+    setSecretToken(null); setSecretUnlocked(false); setSecretState(null)
+    if (secretIdleRef.current) { clearTimeout(secretIdleRef.current); secretIdleRef.current = null }
+    secretLock().catch(() => {})     // cierra la sesión en el server
+    cachePurge().catch(() => {})     // borra cualquier rastro cacheado
+    refreshThreads()                 // la bandeja se re-pide (el server ya no incluye lo oculto)
+    const s = selRef.current; if (s) open(s) // re-pinta el hilo abierto (fresco del server, sin lo oculto) — no te expulsa
+  }
+  const doSecretUnlock = async () => {
+    const st = await getSecretStatus().catch(() => null); if (!st) return
+    if (!st.pinSet) { // primera vez: crear el 2º PIN (distinto del de entrada)
+      const p1 = await askPin("Creá tu PIN", "6-12 dígitos, distinto al de entrada."); if (!p1) return
+      const r = await secretSetup(p1).catch(() => ({ error: "error" } as any)); if (r && r.error) { setToast(r.error); return }
+    }
+    const pin = await askPin("PIN", "Ingresá tu PIN"); if (!pin) return
+    const r = await secretUnlock(pin).catch(() => null) // 401 en PIN incorrecto → j() tira → null
+    if (!r || r.error || !r.token) { setToast((r && r.error) || "PIN incorrecto"); return }
+    setSecretToken(r.token); setSecretUnlocked(true)
+    secretPinSetRef.current = true; setSecretPinSet(true)
+    secretUnlockedAtRef.current = Date.now(); resetSecretIdle()
+    const state = await loadSecretState()
+    refreshThreads(); const s = selRef.current; if (s) open(s) // re-pinta con el token → aparecen las cuentas ocultas
+    const marked = ((state?.numbers || []).length) + ((state?.accounts || []).length)
+    if (!marked) setModal("secret") // todavía no ocultaste ninguna cuenta → abrí el gestor para elegir cuál
+  }
+  const secretToggle = () => { getSecretToken() ? doSecretLock() : doSecretUnlock() }
+  secretLockFnRef.current = doSecretLock
+  resetSecretIdleRef.current = resetSecretIdle
+  // 🔒 OUT-OF-FOCUS: bloquear al SALIR de la app. document.hasFocus() evita bloquear cuando el foco va a un iframe INTERNO (visor de email).
+  // Gracia de 1 min desde el desbloqueo (popups del SO roban el foco justo después y NO deben bloquear) + debounce de 6s (si el foco vuelve, se cancela).
+  // pagehide (cerrar/refrescar) bloquea al toque. Además, 5 min de inactividad en foco bloquea.
+  useEffect(() => {
+    const schedule = () => {
+      if (!getSecretToken() || Date.now() - secretUnlockedAtRef.current < 60000) return
+      if (secretBlurTimerRef.current) clearTimeout(secretBlurTimerRef.current)
+      secretBlurTimerRef.current = setTimeout(() => { if (!document.hasFocus() || document.hidden) secretLockFnRef.current() }, 6000)
+    }
+    const cancel = () => { if (secretBlurTimerRef.current) { clearTimeout(secretBlurTimerRef.current); secretBlurTimerRef.current = null } }
+    const onBlur = () => { if (!document.hasFocus()) schedule() }
+    const onVis = () => { document.hidden ? schedule() : cancel() }
+    const onHide = () => secretLockFnRef.current()
+    const onActivity = () => resetSecretIdleRef.current()
+    window.addEventListener("blur", onBlur); window.addEventListener("focus", cancel)
+    document.addEventListener("visibilitychange", onVis); window.addEventListener("pagehide", onHide)
+    for (const ev of ["click", "keydown", "input"]) document.addEventListener(ev, onActivity, { passive: true } as any)
+    return () => {
+      window.removeEventListener("blur", onBlur); window.removeEventListener("focus", cancel)
+      document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", onHide)
+      for (const ev of ["click", "keydown", "input"]) document.removeEventListener(ev, onActivity)
+    }
+  }, [])
 
   if (authed === null) return <div className="center"><div className="spin" /></div>
   if (!authed) return <Login onOk={() => setAuthed(true)} />
@@ -744,7 +876,13 @@ export default function App() {
 
       {/* list */}
       <div className="list">
-        <div className="lhead"><h2>{query.trim() ? "Resultados" : "Conversaciones"}</h2><span style={{ color: "var(--muted2)" }}>⚟</span></div>
+        <div className="lhead"><h2>{query.trim() ? "Resultados" : "Conversaciones"}</h2>
+          {/* 🔒 CUENTAS SECRETAS: PIN (bloqueado) ↔ Ocultar (desbloqueado) */}
+          <button onClick={secretToggle} title={secretUnlocked ? "Ocultar" : "Ingresá tu PIN"}
+            style={{ fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 8, background: secretUnlocked ? "var(--accent)" : "var(--panel2)", color: secretUnlocked ? "#fff" : "var(--muted)" }}>
+            {secretUnlocked ? "🔓 Ocultar" : "🔒 PIN"}
+          </button>
+        </div>
         {query.trim() && aiRes ? <AiSearchCard res={aiRes} onOpen={openByKey} /> : null}
         {query.trim() ? <div className="grp" style={{ padding: "6px 18px 2px" }}>Contactos</div> : null}
         {list.map((t) => (
@@ -798,6 +936,7 @@ export default function App() {
               </div>
             </div>
             <div className="acts">
+              <button data-tip={secretUnlocked ? "Ocultar (cuentas secretas)" : "Ingresá tu PIN (cuentas secretas)"} onClick={secretToggle} style={secretUnlocked ? { color: "var(--accent)" } : undefined}>{secretUnlocked ? "🔓" : "🔒"}</button>
               <button data-tip={threadAuto ? "Piloto automático ON" : "Piloto automático"} onClick={() => setModal("apcfg")} style={{ color: threadAuto ? "var(--accent)" : undefined }}>🤖</button>
               <button data-tip="Sugerir una respuesta (IA)" onClick={async () => { if (!sel) return; const r = await import("./api").then((a) => a.suggestReply(sel.key)).catch(() => null); if (r?.draft) setDraft(r.draft) }}>✦</button>
               <button data-tip="Resumir la conversación (IA)" onClick={summarize} disabled={busy === "sum"}>{busy === "sum" ? "…" : "📝"}</button>
@@ -831,6 +970,7 @@ export default function App() {
               <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSend() } }} placeholder={covertOn ? "🕊️ Mensaje encubierto…" : busy === "correct" ? "Corrigiendo…" : recording ? (recAi ? "Grabando… (dictado)" : "Grabando nota de voz…") : "Escribí un mensaje…"} disabled={recording} />
               <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={onFilePicked} />
               <input ref={stickerRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onStickerPicked} />
+              {dragOver ? <div style={{ position: "fixed", inset: 0, zIndex: 9998, background: "rgba(18,18,28,.72)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#fff", fontSize: 21, fontWeight: 800, pointerEvents: "none", textAlign: "center" }}>📎 Soltá para adjuntar<span style={{ fontSize: 14, fontWeight: 500, opacity: .8, marginTop: 6 }}>varias fotos → collage · una → recortar</span></div> : null}
               <button className="clip tipup" data-tip="Adjuntar fotos, videos o archivos (varios)" onClick={onAttach} disabled={busy === "attach"}>{busy === "attach" ? "…" : "📎"}</button>
               <button className="clip tipup" data-tip="Mandar una imagen como sticker" onClick={onSticker} disabled={busy === "attach"}>😀</button>
               {/* nota de voz: graba y MANDA el audio */}
@@ -885,7 +1025,10 @@ export default function App() {
       </>}
 
       {/* globales (visibles desde cualquier pane): configuración, detalle de reunión, avisos efímeros */}
-      {modal === "settings" && <SettingsModal onClose={() => setModal(null)} onOpenAutopilot={() => { setPane("mensajes"); setModal("appolicy") }} onToast={(m: string) => setToast(m)} />}
+      {modal === "settings" && <SettingsModal secretUnlocked={secretUnlocked} secretToggle={secretToggle} onClose={() => setModal(null)} onOpenAutopilot={() => { setPane("mensajes"); setModal("appolicy") }} onToast={(m: string) => setToast(m)} />}
+      {/* 🔒 gestor de cuentas ocultas + prompt de PIN */}
+      {modal === "secret" && <SecretManageModal onClose={() => setModal(null)} onLock={() => doSecretLock()} onReloadState={() => { loadSecretState() }} onToast={(m: string) => setToast(m)} />}
+      {pinPrompt && <PinPromptModal title={pinPrompt.title} sub={pinPrompt.sub} onSubmit={(v: string) => closePin(v || null)} onCancel={() => closePin(null)} />}
       {meetingId && <MeetingModal id={meetingId} onClose={() => setMeetingId(null)} onOpenConv={(k, n) => { setMeetingId(null); openByKey(k, n) }} onOpenPerson={(n) => { setMeetingId(null); setPane("contactos"); void n }} />}
       {toast && <div className="toast"><span>{toast}</span></div>}
     </div>
@@ -1076,7 +1219,400 @@ function TrainDeck({ onToast }: { onToast: (m: string) => void }) {
 // ⚙️ Configuración: canales/cuentas · motor de IA (BYOK) · notificaciones. Mismos endpoints que web/mobile.
 const AI_PROV: [string, string][] = [["openai", "OpenAI"], ["anthropic", "Anthropic (Claude)"], ["gemini", "Google Gemini"]]
 const PLABEL: Record<string, string> = { openai: "OpenAI", anthropic: "Anthropic", gemini: "Gemini", ollama: "Ollama (local)", gestionado: "GPU box (gestionado)" }
-function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => void; onOpenAutopilot: () => void; onToast: (m: string) => void }) {
+// 🔒 GESTOR de cuentas ocultas: números de WhatsApp + cuentas de correo con un toggle. Toda la actividad de la marcada se oculta sin el PIN.
+function SecretManageModal({ onClose, onLock, onReloadState, onToast }: { onClose: () => void; onLock: () => void; onReloadState: () => void; onToast: (m: string) => void }) {
+  const [accts, setAccts] = useState<any>({ email: [], messaging: [] })
+  const [state, setState] = useState<{ accounts: { channel: string; account: string }[]; numbers: string[] }>({ accounts: [], numbers: [] })
+  const [loading, setLoading] = useState(true)
+  const load = async () => {
+    const [a, s] = await Promise.all([getAccounts().catch(() => ({} as any)), getSecretState().catch(() => ({ accounts: [], numbers: [] } as any))])
+    setAccts(a || {}); setState((s as any) || { accounts: [], numbers: [] }); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+  const isNumSecret = (n: string) => (state.numbers || []).includes(String(n).replace(/\D/g, ""))
+  const isAcctSecret = (ch: string, ac: string) => (state.accounts || []).some((a) => a.channel === ch && a.account === ac)
+  const mark = async (fn: () => Promise<any>, want: boolean) => {
+    const r = await fn().catch(() => null)
+    if (!r) { onToast("No se pudo guardar (¿conexión?). Reintentá."); return }
+    if (r.error) { onToast(r.error === "bloqueado" ? "El PIN se cerró — ingresalo de nuevo." : r.error); return }
+    await load(); onReloadState()
+    if (want) { onClose(); onLock() } // marcaste una cuenta → esconder YA (la bandeja se bloquea y desaparece)
+  }
+  const toggleWa = (n: string) => { const want = !isNumSecret(n); mark(() => secretSetWa(n, want), want) }
+  const toggleAcct = (ch: string, ac: string) => { const want = !isAcctSecret(ch, ac); mark(() => secretSetAccount(ch, ac, want), want) }
+  const nums: string[] = accts?.messaging?.[0]?.numbers || []
+  const emails: any[] = accts?.email || []
+  const rowStyle = { display: "block", width: "100%", textAlign: "left" as const, marginBottom: 6, flex: "none" as const }
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "94vw", maxHeight: "88vh", overflow: "auto" }}>
+      <h3>🔒 Cuentas ocultas</h3>
+      <p className="modalsub">Marcá qué cuenta ocultar — toda su actividad se esconde sin el PIN.</p>
+      {loading ? <div className="center" style={{ height: 80 }}><div className="spin" /></div> : (<>
+        <div className="modallabel" style={{ marginTop: 4 }}>WhatsApp</div>
+        {nums.length ? nums.map((n) => (
+          <button key={n} className={"mbtn" + (isNumSecret(n) ? "" : " ghost")} onClick={() => toggleWa(n)} style={rowStyle}>
+            {isNumSecret(n) ? "☑" : "☐"}  WhatsApp +{n}
+          </button>
+        )) : <div className="modalsub" style={{ marginBottom: 8 }}>—</div>}
+        <div className="modallabel" style={{ marginTop: 12 }}>Correo</div>
+        {emails.length ? emails.map((e) => (
+          <button key={e.label} className={"mbtn" + (isAcctSecret("email", e.label) ? "" : " ghost")} onClick={() => toggleAcct("email", e.label)} style={rowStyle}>
+            {isAcctSecret("email", e.label) ? "☑" : "☐"}  {e.name || e.user}
+          </button>
+        )) : <div className="modalsub" style={{ marginBottom: 8 }}>—</div>}
+        <button className="mbtn" style={{ width: "100%", marginTop: 14 }} onClick={() => { onClose(); onLock() }}>Ocultar ahora</button>
+      </>)}
+    </div></div>
+  )
+}
+// 🔒 hoja de PIN: crear o ingresar el 2º PIN. Enter envía; el valor vive solo en el input (nunca a disco).
+function PinPromptModal({ title, sub, onSubmit, onCancel }: { title: string; sub: string; onSubmit: (v: string) => void; onCancel: () => void }) {
+  const [val, setVal] = useState("")
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { const id = setTimeout(() => ref.current?.focus(), 60); return () => clearTimeout(id) }, [])
+  const go = () => onSubmit(val.trim())
+  return (
+    <div className="modalbg" onClick={onCancel}><div className="modalcard" onClick={(e) => e.stopPropagation()} style={{ width: 340 }}>
+      <h3>{title}</h3>
+      <p className="modalsub">{sub}</p>
+      <input ref={ref} type="password" inputMode="numeric" autoComplete="off" maxLength={12} placeholder="••••••"
+        value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") go() }}
+        className="modalinput" style={{ fontSize: 20, letterSpacing: 5, textAlign: "center" }} />
+      <div className="modalrow"><button className="mbtn" onClick={go}>Continuar</button></div>
+    </div></div>
+  )
+}
+// ── WhatsApp: vincular vía el bridge Matrix del server (QR o código por número), in-app ──
+type Msg2 = { text: string; kind: "info" | "err" | "ok" } | null
+const msgColor = (m: Msg2) => (!m ? undefined : m.kind === "err" ? "var(--danger)" : m.kind === "ok" ? "var(--ok)" : "var(--muted)")
+// ── Vinculación vía bridge Matrix (WhatsApp / Instagram / Facebook / LinkedIn): QR o código por número ──
+// Parametrizado por `net`: mismo flujo (matrixLink/matrixStatus/matrixQrImage) para todas las redes del bridge.
+function WaLink({ onToast, onDone, net = "whatsapp", label = "WhatsApp", instr }: { onToast: (m: string) => void; onDone: () => void; net?: string; label?: string; instr?: ReactNode }) {
+  const [phone, setPhone] = useState("")
+  const [msg, setMsg] = useState<Msg2>(null)
+  const [qr, setQr] = useState("")
+  const [code, setCode] = useState("")
+  const [started, setStarted] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const doneRef = useRef(onDone); doneRef.current = onDone
+
+  const start = async (byPhone: boolean) => {
+    const v = byPhone ? phone.trim() : ""
+    if (byPhone && !v) { setMsg({ text: "Poné el número primero, con código de país.", kind: "err" }); return }
+    setMsg({ text: "Generando… puede tardar ~30s. No cierres esto.", kind: "info" }); setQr(""); setCode("")
+    await matrixLink(net, v).catch(() => {})
+    setStarted(true)
+  }
+  // poll de estado + refresco del QR cada ~3s (igual que la web)
+  useEffect(() => {
+    if (!started) return
+    let alive = true, t: any
+    const tick = async () => {
+      const r = await matrixStatus(net).catch(() => null)
+      if (!alive) return
+      if (r?.connected) { setConnected(true); onToast("✓ ¡" + label + " conectado!"); setTimeout(() => doneRef.current(), 1400); return }
+      setCode(r?.code || "")
+      if (r?.qr) { const img = await matrixQrImage(net).catch(() => ""); if (alive && img) setQr(img) }
+      if (alive) t = setTimeout(tick, 3000)
+    }
+    t = setTimeout(tick, 700)
+    return () => { alive = false; clearTimeout(t) }
+  }, [started])
+
+  return (
+    <div className="setform">
+      <div className="modalsub" style={{ marginBottom: 10 }}>{instr ?? <>En tu teléfono: WhatsApp → <b>Ajustes → Dispositivos vinculados → Vincular un dispositivo</b> → escaneá el QR (o poné el código).</>}</div>
+      <input className="modalinput" placeholder="+51 999 000 000 (con código de país)" value={phone} inputMode="tel" onChange={(e) => setPhone(e.target.value)} />
+      <div className="modalrow"><button className="mbtn" onClick={() => start(true)}>Código por número</button><button className="mbtn ghost" style={{ flex: 1 }} onClick={() => start(false)}>QR</button></div>
+      <div style={{ marginTop: 14, textAlign: "center", minHeight: 44 }}>
+        {connected ? <b style={{ color: "var(--ok)" }}>✓ ¡{label} conectado!</b> : (<>
+          {code ? <><div style={{ fontSize: 12, color: "var(--muted)" }}>En la app → Dispositivos vinculados → Vincular con número:</div><div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 5, color: "var(--accent)", margin: "10px 0" }}>{code}</div></> : null}
+          {qr ? <img alt="QR" src={qr} style={{ width: 220, height: 220, background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: 8 }} /> : null}
+          {!code && !qr && msg ? <span style={{ fontSize: 12.5, color: msgColor(msg) }}>{msg.text}</span> : null}
+        </>)}
+      </div>
+      <button className="setcancel" onClick={onDone}>Cerrar</button>
+    </div>
+  )
+}
+// ── Discord: vincula por TOKEN (su QR suele fallar) → /api/matrix-link-token, luego se pollea matrixStatus("discord") ──
+function DiscordLink({ onToast, onDone }: { onToast: (m: string) => void; onDone: () => void }) {
+  const [tok, setTok] = useState("")
+  const [msg, setMsg] = useState<Msg2>(null)
+  const [started, setStarted] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const doneRef = useRef(onDone); doneRef.current = onDone
+
+  const submit = async () => {
+    const t = tok.trim()
+    if (!t) { setMsg({ text: "Pegá el token primero.", kind: "err" }); return }
+    setMsg({ text: "Vinculando…", kind: "info" })
+    await matrixLinkToken("discord", t).catch(() => {})
+    setStarted(true)
+  }
+  // poll de estado cada ~3s hasta conectar (mismo patrón que WaLink)
+  useEffect(() => {
+    if (!started) return
+    let alive = true, t: any
+    const tick = async () => {
+      const r = await matrixStatus("discord").catch(() => null)
+      if (!alive) return
+      if (r?.connected) { setConnected(true); onToast("✓ ¡Discord conectado!"); setTimeout(() => doneRef.current(), 1400); return }
+      if (alive) t = setTimeout(tick, 3000)
+    }
+    t = setTimeout(tick, 700)
+    return () => { alive = false; clearTimeout(t) }
+  }, [started])
+
+  return (
+    <div className="setform">
+      <div className="modalsub" style={{ marginBottom: 10 }}>El QR de Discord suele fallar. Lo confiable es tu <b>token</b>.</div>
+      <details style={{ marginBottom: 10 }}>
+        <summary style={{ cursor: "pointer", color: "var(--accent)", fontWeight: 600, fontSize: 13 }}>🔑 ¿Cómo saco mi token?</summary>
+        <ol style={{ paddingLeft: 20, fontSize: 12.5, lineHeight: 1.6, margin: "9px 0 0" }}>
+          <li>Abrí <b>discord.com</b> en el navegador (logueado).</li>
+          <li>Apretá <b>F12</b> → pestaña <b>Network</b>.</li>
+          <li>Hacé cualquier acción; abrí un request y buscá el header <b>authorization</b>.</li>
+          <li>Copiá ese valor y pegalo abajo.</li>
+        </ol>
+      </details>
+      <textarea className="modalinput" rows={2} placeholder="Pegá tu token de Discord acá" value={tok} spellCheck={false} autoCapitalize="none" style={{ resize: "none" }} onChange={(e) => { setTok(e.target.value); setMsg(null) }} />
+      <button className="mbtn" style={{ width: "100%" }} onClick={submit}>Vincular con token</button>
+      <div style={{ marginTop: 12, textAlign: "center", minHeight: 30 }}>
+        {connected ? <b style={{ color: "var(--ok)" }}>✓ ¡Discord conectado!</b> : (msg ? <span style={{ fontSize: 12.5, color: msgColor(msg) }}>{msg.text}</span> : null)}
+      </div>
+      <button className="setcancel" onClick={onDone}>Cerrar</button>
+    </div>
+  )
+}
+// ── Telegram self-service: teléfono → código → 2FA opcional (GramJS vía el server) ──
+function TgLink({ configured, onToast, onDone }: { configured: boolean; onToast: (m: string) => void; onDone: () => void }) {
+  const [stage, setStage] = useState<"phone" | "code" | "password">("phone")
+  const [phone, setPhone] = useState(""); const [apiId, setApiId] = useState(""); const [apiHash, setApiHash] = useState("")
+  const [code, setCode] = useState(""); const [pw, setPw] = useState("")
+  const [msg, setMsg] = useState<Msg2>(null); const [busy, setBusy] = useState(false); const [polling, setPolling] = useState(false)
+  const doneRef = useRef(onDone); doneRef.current = onDone
+  const needApi = !configured
+
+  const start = async () => {
+    if (!phone.trim()) { setMsg({ text: "Poné tu teléfono con código de país.", kind: "err" }); return }
+    setBusy(true); setMsg({ text: "Enviando código a tu Telegram…", kind: "info" })
+    const r = await telegramStart({ phone: phone.trim(), apiId: apiId.trim(), apiHash: apiHash.trim() }).catch(() => null)
+    setBusy(false)
+    if (!r || r.error) { setMsg({ text: (r && r.error) || "No se pudo iniciar.", kind: "err" }); return }
+    setMsg(null); setStage("code")
+  }
+  const submitCode = async () => {
+    if (!code.trim()) { setMsg({ text: "Escribí el código.", kind: "err" }); return }
+    setBusy(true); setMsg({ text: "Verificando…", kind: "info" }); await telegramCode(code.trim()).catch(() => {}); setBusy(false); setPolling(true)
+  }
+  const submitPw = async () => { setBusy(true); setMsg({ text: "Verificando…", kind: "info" }); await telegramPassword(pw).catch(() => {}); setBusy(false); setPolling(true) }
+  useEffect(() => {
+    if (!polling) return
+    let alive = true, t: any
+    const tick = async () => {
+      const st = await telegramStatus().catch(() => null)
+      if (!alive) return
+      if (st?.connected) { setMsg({ text: "✓ ¡Telegram conectado!", kind: "ok" }); await telegramConnected().catch(() => {}); setTimeout(() => doneRef.current(), 1400); return }
+      if (st?.stage === "password") { setPolling(false); setStage("password"); setMsg(null); return }
+      if (st?.stage === "error") { setPolling(false); setMsg({ text: st.error || "Error en el login. Reintentá.", kind: "err" }); return }
+      t = setTimeout(tick, 1500)
+    }
+    t = setTimeout(tick, 700)
+    return () => { alive = false; clearTimeout(t) }
+  }, [polling])
+
+  return (
+    <div className="setform">
+      {stage === "phone" && (<>
+        <div className="modalsub" style={{ marginBottom: 10 }}>Poné tu teléfono; Telegram te manda un código a tu app para confirmar (solo lectura de tus chats).</div>
+        {needApi ? (<>
+          <div className="modalsub" style={{ marginBottom: 8 }}>Primera vez: sacá el <b>API ID</b> y <b>API Hash</b> en my.telegram.org → API development tools.</div>
+          <input className="modalinput" placeholder="API ID (número)" value={apiId} inputMode="numeric" onChange={(e) => setApiId(e.target.value)} />
+          <input className="modalinput" placeholder="API Hash" value={apiHash} spellCheck={false} onChange={(e) => setApiHash(e.target.value)} />
+        </>) : null}
+        <input className="modalinput" placeholder="+51 999 000 000 (con código de país)" value={phone} inputMode="tel" onChange={(e) => setPhone(e.target.value)} />
+        <button className="mbtn" style={{ width: "100%" }} onClick={start} disabled={busy}>{busy ? "Enviando…" : "Enviar código"}</button>
+      </>)}
+      {stage === "code" && (<>
+        <div className="modalsub" style={{ marginBottom: 10 }}>Telegram te mandó un código a tu <b>app</b> (no por SMS). Escribilo acá.</div>
+        <input className="modalinput" style={{ textAlign: "center", fontSize: 22, letterSpacing: 6 }} placeholder="1 2 3 4 5" value={code} inputMode="numeric" onChange={(e) => setCode(e.target.value)} />
+        <button className="mbtn" style={{ width: "100%" }} onClick={submitCode} disabled={busy}>{busy ? "…" : "Confirmar"}</button>
+      </>)}
+      {stage === "password" && (<>
+        <div className="modalsub" style={{ marginBottom: 10 }}>Tenés verificación en 2 pasos en Telegram. Poné tu contraseña de 2 pasos.</div>
+        <input className="modalinput" type="password" placeholder="Contraseña de 2 pasos" value={pw} onChange={(e) => setPw(e.target.value)} />
+        <button className="mbtn" style={{ width: "100%" }} onClick={submitPw} disabled={busy}>{busy ? "…" : "Confirmar"}</button>
+      </>)}
+      {msg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13.5, color: msgColor(msg) }}>{msg.text}</div> : null}
+      <button className="setcancel" onClick={onDone}>Cerrar</button>
+    </div>
+  )
+}
+// ── Sección "Mensajería" en Configuración → Canales: WhatsApp / Telegram / Slack / Signal + guía de canales del servidor ──
+function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { onToast: (m: string) => void; secretUnlocked: boolean; secret: { accounts: { channel: string; account: string }[]; numbers: string[] }; reloadSecret: () => void | Promise<void> }) {
+  const [integ, setInteg] = useState<any>(null)
+  const [waDown, setWaDown] = useState<string[]>([])
+  const [tg, setTg] = useState<any>({})
+  const [status, setStatus] = useState<any>(null) // /api/status — cuentas WhatsApp conectadas (autoritativo)
+  const [logins, setLogins] = useState<Record<string, string[]>>({}) // cuentas conectadas por bridge (ig/fb/li/discord)
+  const [open, setOpen] = useState<null | "wa" | "ig" | "fb" | "li" | "tg" | "discord" | "slack" | "signal">(null)
+  const [slkTok, setSlkTok] = useState(""); const [slkMsg, setSlkMsg] = useState<Msg2>(null); const [slkBusy, setSlkBusy] = useState(false)
+  const [sgUrl, setSgUrl] = useState(""); const [sgNum, setSgNum] = useState(""); const [sgMsg, setSgMsg] = useState<Msg2>(null); const [sgBusy, setSgBusy] = useState(false)
+
+  const reload = async () => {
+    const [i, w, t, s] = await Promise.all([getIntegrations().catch(() => null), getWaStatus().catch(() => null), telegramStatus().catch(() => null), getStatus().catch(() => null)])
+    if (i) setInteg(i); if (w) setWaDown(w.loggedOut || []); if (t) setTg(t); if (s) setStatus(s)
+  }
+  // cuentas conectadas de los bridges multi-cuenta (IG/FB/LinkedIn/Discord). refresh=1 repuebla listas viejas/vacías.
+  const reloadLogins = async () => {
+    for (const net of ["instagram", "facebook", "linkedin", "discord"]) {
+      const r = await getMatrixLogins(net, true).catch(() => null)
+      if (r) setLogins((prev) => ({ ...prev, [net]: r.accounts || [] }))
+    }
+  }
+  useEffect(() => { reload(); reloadLogins() }, [])
+  // al desbloquear/bloquear el PIN: re-pedir estado (con el token aparecen/desaparecen las cuentas secretas)
+  useEffect(() => { reload(); reloadLogins() }, [secretUnlocked])
+  const closePanel = () => { setOpen(null); reload(); reloadLogins() }
+
+  const saveSlack = async () => {
+    if (!slkTok.trim()) { setSlkMsg({ text: "Pegá el token primero.", kind: "err" }); return }
+    setSlkBusy(true); setSlkMsg({ text: "Verificando con Slack…", kind: "info" })
+    const r = await setSlack(slkTok.trim()).catch(() => null); setSlkBusy(false)
+    if (!r || r.error) { setSlkMsg({ text: (r && r.error) || "No se pudo conectar.", kind: "err" }); return }
+    onToast("✓ Slack conectado" + (r.team ? ` (${r.team})` : "")); setSlkTok(""); setSlkMsg(null); setOpen(null); reload()
+  }
+  const disconnectSlack = async () => { await removeSlack().catch(() => {}); onToast("Slack desconectado"); reload() }
+  const saveSignal = async () => {
+    if (!sgUrl.trim() || !sgNum.trim()) { setSgMsg({ text: "Completá la URL y tu número.", kind: "err" }); return }
+    setSgBusy(true); setSgMsg({ text: "Guardando…", kind: "info" })
+    const r = await setSignal(sgUrl.trim(), sgNum.trim()).catch(() => null); setSgBusy(false)
+    if (!r || r.error) { setSgMsg({ text: (r && r.error) || "No se pudo guardar.", kind: "err" }); return }
+    onToast("✓ Signal conectado"); setSgUrl(""); setSgNum(""); setSgMsg(null); setOpen(null); reload()
+  }
+  const disconnectSignal = async () => { await removeSignal().catch(() => {}); onToast("Signal desconectado"); reload() }
+
+  const slackOn = !!integ?.slack?.configured, signalOn = !!integ?.signal?.configured, tgOn = !!tg?.connected
+
+  const row = (icon: string, name: string, sub: ReactNode, action: ReactNode) => (
+    <div className="setrow">
+      <span style={{ fontSize: 17 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>{name}</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{sub}</div></div>
+      {action}
+    </div>
+  )
+  const linkBtn = (label: string, onClick: () => void) => <button onClick={onClick} style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12.5, flex: "0 0 auto" }}>{label}</button>
+  const delBtn = (onClick: () => void) => <button onClick={onClick} style={{ color: "var(--danger)", fontSize: 12.5, fontWeight: 600, flex: "0 0 auto" }}>Desconectar</button>
+
+  // ── Canales de bridge = MULTI-CUENTA: cada vinculación agrega otro número/cuenta ──
+  const fmtAcct = (a: string) => { const s = String(a).replace(/^\+/, ""); return /^\d+$/.test(s) ? "+" + s : s }
+  // WhatsApp: cuentas conectadas = bridge (Matrix) + baileys (directo)
+  const waAccounts: string[] = [
+    ...((status?.whatsapp?.bridge as string[]) || []),
+    ...(((status?.whatsapp?.baileys as { acc?: string; num?: string }[]) || []).map((b) => b.num || b.acc || "")),
+  ].filter(Boolean)
+  // resumen "N conectada(s)" o neutro "Sin cuentas todavía" (las cuentas van como filas individuales debajo)
+  const acctSub = (accounts: string[]): ReactNode =>
+    accounts.length
+      ? <span style={{ color: "var(--ok)" }}>{accounts.length} conectada{accounts.length > 1 ? "s" : ""}</span>
+      : "Sin cuentas todavía"
+  // ── 🔒 marcar una cuenta/número del bridge como secreta (mismo mecanismo que WhatsApp: secretSetWa) ──
+  const digitsOnly = (n: string) => String(n).replace(/\D/g, "")
+  const isAcctSecret = (n: string) => { const d = digitsOnly(n); return d ? (secret.numbers || []).includes(d) : (secret.numbers || []).includes(String(n)) }
+  const toggleSecret = async (n: string) => {
+    const want = !isAcctSecret(n)
+    const r = await secretSetWa(n, want).catch(() => null)
+    if (!r || (r as any).error) { onToast(((r as any) && (r as any).error) || "No se pudo guardar."); return }
+    onToast(want ? "🔒 Marcada como secreta" : "Ya no es secreta")
+    await reloadSecret(); reload(); reloadLogins()
+  }
+  // filas individuales por cuenta conectada (número). Con PIN desbloqueado, cada fila trae el toggle "🔒 secreta".
+  const acctRows = (accounts: string[]) => accounts.map((a) => (
+    <div key={a} className="setrow" style={{ paddingLeft: 40 }}>
+      <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600 }}>{isAcctSecret(a) ? "🔒 " : ""}{fmtAcct(a)}</div>
+      {secretUnlocked ? <button onClick={() => toggleSecret(a)} data-tip={isAcctSecret(a) ? "Dejar de ocultar" : "Marcar secreta"} style={{ fontSize: 11.5, fontWeight: 600, flex: "0 0 auto", color: isAcctSecret(a) ? "var(--accent)" : "var(--muted)" }}>{isAcctSecret(a) ? "🔒 secreta" : "☐ secreta"}</button> : null}
+    </div>
+  ))
+
+  return (<>
+    <label className="modallabel" style={{ marginTop: 16 }}>Mensajería</label>
+    {/* WhatsApp — MULTI-CUENTA: lista las cuentas conectadas + "Agregar cuenta" */}
+    {row("📲", "WhatsApp", <>
+      {acctSub(waAccounts)}
+      {waDown.length ? <span style={{ color: "var(--danger)" }}>{waAccounts.length ? " · " : ""}⚠️ revinculá {waDown.map(fmtAcct).join(", ")}</span> : null}
+    </>, linkBtn(open === "wa" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "wa" ? null : "wa")))}
+    {acctRows(waAccounts)}
+    {open === "wa" ? <WaLink onToast={onToast} onDone={closePanel} /> : null}
+    {/* Instagram — mismo bridge Matrix (QR o código), multi-cuenta */}
+    {row("📷", "Instagram", acctSub(logins.instagram || []),
+      linkBtn(open === "ig" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "ig" ? null : "ig")))}
+    {acctRows(logins.instagram || [])}
+    {open === "ig" ? <WaLink net="instagram" label="Instagram" onToast={onToast} onDone={closePanel}
+      instr={<>Vinculá tu cuenta de Instagram por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código con tu app (o usá el código por número). Puede tardar ~30s.</>} /> : null}
+    {/* Facebook / Messenger — mismo bridge, multi-cuenta */}
+    {row("🔵", "Facebook", acctSub(logins.facebook || []),
+      linkBtn(open === "fb" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "fb" ? null : "fb")))}
+    {acctRows(logins.facebook || [])}
+    {open === "fb" ? <WaLink net="facebook" label="Facebook" onToast={onToast} onDone={closePanel}
+      instr={<>Vinculá tu cuenta de Facebook/Messenger por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código (o usá el código por número). Puede tardar ~30s.</>} /> : null}
+    {/* LinkedIn — mismo bridge, multi-cuenta */}
+    {row("🔗", "LinkedIn", acctSub(logins.linkedin || []),
+      linkBtn(open === "li" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "li" ? null : "li")))}
+    {acctRows(logins.linkedin || [])}
+    {open === "li" ? <WaLink net="linkedin" label="LinkedIn" onToast={onToast} onDone={closePanel}
+      instr={<>Vinculá tu cuenta de LinkedIn por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código (o usá el código por número). Puede tardar ~30s.</>} /> : null}
+    {/* Telegram */}
+    {row("✈️", "Telegram", tgOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓ · solo lectura</span> : "Teléfono + código",
+      tgOn ? <span style={{ color: "var(--ok)", fontSize: 14 }}>✓</span> : linkBtn(open === "tg" ? "Cerrar" : "Conectar", () => setOpen(open === "tg" ? null : "tg")))}
+    {open === "tg" && !tgOn ? <TgLink configured={!!tg?.configured} onToast={onToast} onDone={closePanel} /> : null}
+    {/* Discord — vincula por token (su QR suele fallar), multi-cuenta */}
+    {row("🎮", "Discord", acctSub(logins.discord || []),
+      linkBtn(open === "discord" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "discord" ? null : "discord")))}
+    {acctRows(logins.discord || [])}
+    {open === "discord" ? <DiscordLink onToast={onToast} onDone={closePanel} /> : null}
+    {/* Slack */}
+    {row("💼", "Slack", slackOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓{integ?.slack?.team ? ` · ${integ.slack.team}` : ""}</span> : "Con token de app (xoxp/xoxb)",
+      slackOn ? delBtn(disconnectSlack) : linkBtn(open === "slack" ? "Cerrar" : "Conectar", () => setOpen(open === "slack" ? null : "slack")))}
+    {open === "slack" && !slackOn ? (
+      <div className="setform">
+        <div className="modalsub" style={{ marginBottom: 10 }}>Trae tus DMs y canales a la bandeja. Creá una app en <b>api.slack.com/apps</b>, agregá scopes de lectura (<code>channels:history</code>, <code>im:history</code>, <code>users:read</code>…) e instalala; copiá el <b>User OAuth Token</b>.</div>
+        <input className="modalinput" placeholder="Pegá tu token de Slack (xoxp-… o xoxb-…)" value={slkTok} type="password" spellCheck={false} autoCapitalize="none" onChange={(e) => { setSlkTok(e.target.value); setSlkMsg(null) }} />
+        <button className="mbtn" style={{ width: "100%" }} onClick={saveSlack} disabled={slkBusy}>{slkBusy ? "Verificando…" : "Conectar Slack"}</button>
+        {slkMsg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13, color: msgColor(slkMsg) }}>{slkMsg.text}</div> : null}
+      </div>
+    ) : null}
+    {/* Signal */}
+    {row("🔒", "Signal", signalOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓{integ?.signal?.number ? ` · ${integ.signal.number}` : ""}</span> : "signal-cli-rest-api en tu server",
+      signalOn ? delBtn(disconnectSignal) : linkBtn(open === "signal" ? "Cerrar" : "Conectar", () => setOpen(open === "signal" ? null : "signal")))}
+    {open === "signal" && !signalOn ? (
+      <div className="setform">
+        <div className="modalsub" style={{ marginBottom: 10 }}>Se une al <b>mismo hilo</b> que WhatsApp/SMS de cada contacto. Necesitás <b>signal-cli-rest-api</b> corriendo en tu servidor. Poné su URL y tu número.</div>
+        <input className="modalinput" placeholder="http://localhost:8080" value={sgUrl} spellCheck={false} autoCapitalize="none" onChange={(e) => { setSgUrl(e.target.value); setSgMsg(null) }} />
+        <input className="modalinput" placeholder="+51 999 000 000" value={sgNum} inputMode="tel" onChange={(e) => { setSgNum(e.target.value); setSgMsg(null) }} />
+        <button className="mbtn" style={{ width: "100%" }} onClick={saveSignal} disabled={sgBusy}>{sgBusy ? "Guardando…" : "Conectar Signal"}</button>
+        {sgMsg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13, color: msgColor(sgMsg) }}>{sgMsg.text}</div> : null}
+      </div>
+    ) : null}
+    <div className="cfg-note2" style={{ marginTop: 12 }}>Otros canales se conectan desde el <b>servidor</b> de tu hub: <b>Microsoft 365</b> (Outlook/Teams entran como correo vía Graph), <b>Notion</b> y <b>Google Calendar/Drive</b> (con token/login en el servidor). Importar historial de WhatsApp está en la barra lateral, en Herramientas.</div>
+  </>)
+}
+// ── Confirmación destructiva reutilizable: nunca borrar una cuenta en un solo click ──
+function ConfirmDialog({ title, body, confirmLabel = "Eliminar cuenta", onCancel, onConfirm }: { title: ReactNode; body: ReactNode; confirmLabel?: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="modalbg" onClick={onCancel} style={{ zIndex: 70 }}>
+      <div className="modalcard" onClick={(e) => e.stopPropagation()} style={{ width: 360, maxWidth: "92vw" }}>
+        <h3>{title}</h3>
+        <p className="modalsub">{body}</p>
+        <div className="modalrow" style={{ marginTop: 14 }}>
+          <button className="mbtn ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
+          <button className="mbtn" style={{ flex: 1, background: "var(--danger)", color: "#fff" }} onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secretToggle }: { onClose: () => void; onOpenAutopilot: () => void; onToast: (m: string) => void; secretUnlocked: boolean; secretToggle: () => void }) {
   const [tab, setTab] = useState<"canales" | "ia" | "notif" | "apify">("canales")
   const [hub, setHub] = useState<any>(null)
   const [accts, setAccts] = useState<any>({ email: [] })
@@ -1085,7 +1621,14 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [em, setEm] = useState({ name: "", user: "", pass: "" }); const [showEmail, setShowEmail] = useState(false)
+  const [emSecret, setEmSecret] = useState(false) // ☐ marcar la cuenta nueva como secreta (solo con PIN desbloqueado)
   const [key, setKey] = useState({ provider: "openai", name: "", token: "", test: "" }); const [showKey, setShowKey] = useState(false)
+  // 🔒 cuentas/números marcados como secretos (solo se puebla con el PIN desbloqueado; el server filtra los ocultos cuando está bloqueado)
+  const [secret, setSecret] = useState<{ accounts: { channel: string; account: string }[]; numbers: string[] }>({ accounts: [], numbers: [] })
+  const reloadSecret = async () => { if (!secretUnlocked) { setSecret({ accounts: [], numbers: [] }); return } const s = await getSecretState().catch(() => null); if (s) setSecret(s as any) }
+  const isEmailSecret = (label: string) => (secret.accounts || []).some((a) => a.channel === "email" && a.account === label)
+  // confirmación destructiva pendiente (nunca borrar en un click)
+  const [confirm, setConfirm] = useState<{ title: ReactNode; body: ReactNode; confirmLabel?: string; onYes: () => void } | null>(null)
   // ── Enriquecimiento (Apify): cuentas rotativas + config avanzada de actors por plataforma ──
   const [apify, setApify] = useState<{ accounts: ApifyAccount[]; actors?: Record<string, string>; month?: string } | null>(null)
   const [ap, setAp] = useState({ name: "", token: "" }); const [showAp, setShowAp] = useState(false); const [apBusy, setApBusy] = useState(false)
@@ -1117,16 +1660,32 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
     setHub(h || {}); setAccts(a || { email: [] }); setLlm(l || {}); setNotif(n || {}); setLoading(false)
   }
   useEffect(() => { load() }, [])
+  // al desbloquear/bloquear el PIN: re-pedir cuentas (el server ya no filtra las secretas) + el estado de "qué está oculto"
+  useEffect(() => { reloadSecret(); load() }, [secretUnlocked])
 
   const addEmail = async () => {
     if (!em.user.trim() || !em.pass.trim()) { onToast("Falta el correo o la contraseña de aplicación."); return }
     setBusy(true)
-    const r = await addEmailAccount({ user: em.user.trim(), pass: em.pass.trim(), name: em.name.trim() }).catch(() => ({ error: "error" }))
-    setBusy(false)
-    if (r && r.ok) { setEm({ name: "", user: "", pass: "" }); setShowEmail(false); onToast("✓ Cuenta conectada"); load() }
-    else onToast((r && r.error) || "No se pudo — revisá las credenciales")
+    const user = em.user.trim(); const wantSecret = secretUnlocked && emSecret
+    const r = await addEmailAccount({ user, pass: em.pass.trim(), name: em.name.trim() }).catch(() => ({ error: "error" }))
+    if (r && r.ok) {
+      if (wantSecret) { // buscar el label real de la cuenta recién creada y marcarla secreta
+        const fresh = await getAccounts().catch(() => null)
+        const match = (fresh?.email || []).find((e: any) => String(e.user || "").toLowerCase() === user.toLowerCase() || e.label === user)
+        await secretSetAccount("email", match?.label || user, true).catch(() => {})
+        await reloadSecret()
+      }
+      setBusy(false); setEm({ name: "", user: "", pass: "" }); setEmSecret(false); setShowEmail(false); onToast(wantSecret ? "✓ Cuenta conectada (🔒 secreta)" : "✓ Cuenta conectada"); load()
+    } else { setBusy(false); onToast((r && r.error) || "No se pudo — revisá las credenciales") }
   }
-  const removeEmail = async (label: string) => { setBusy(true); await removeEmailAccount(label).catch(() => {}); setBusy(false); load() }
+  const removeEmail = async (label: string) => { setBusy(true); await removeEmailAccount(label).catch(() => {}); setBusy(false); load(); reloadSecret() }
+  // marcar/desmarcar una cuenta de correo como secreta (solo con PIN); queda visible con 🔒 hasta que ocultes
+  const toggleEmailSecret = async (label: string) => {
+    const want = !isEmailSecret(label)
+    const r = await secretSetAccount("email", label, want).catch(() => null)
+    if (!r || (r as any).error) { onToast(((r as any) && (r as any).error) || "No se pudo guardar."); return }
+    onToast(want ? "🔒 Marcada como secreta" : "Ya no es secreta"); await reloadSecret(); load()
+  }
   // al reguardar keys nunca reenvío tokens existentes (van vacíos → el server conserva los cifrados). Igual que mobile.
   const existingKeys = () => (llm?.keysList || []).map((k: any) => (k.provider === "ollama" || k.provider === "gestionado") ? { id: k.id, provider: k.provider, name: k.name } : { id: k.id, provider: k.provider, name: k.name, token: "" })
   const testKey = async () => {
@@ -1167,12 +1726,20 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
       </div>
       {loading ? <div className="center" style={{ height: 120 }}><div className="spin" /></div> : (<>
         {tab === "canales" && (<>
+          {/* 🔒 PIN/Ocultar — habilita configurar cuentas secretas en esta pestaña (mismo secretToggle de la app) */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2, marginBottom: 2 }}>
+            <button onClick={secretToggle} title={secretUnlocked ? "Ocultar (cuentas secretas)" : "Ingresá tu PIN para configurar cuentas secretas"}
+              style={{ fontSize: 11.5, fontWeight: 700, padding: "5px 11px", borderRadius: 8, background: secretUnlocked ? "var(--accent)" : "var(--panel2)", color: secretUnlocked ? "#fff" : "var(--muted)" }}>
+              {secretUnlocked ? "🔓 Ocultar" : "🔒 PIN"}
+            </button>
+          </div>
           <label className="modallabel" style={{ marginTop: 6 }}>Cuentas de correo</label>
           {(accts.email || []).length ? (accts.email || []).map((e: any) => (
             <div key={e.label} className="setrow">
-              <span style={{ fontSize: 17 }}>✉️</span>
+              <span style={{ fontSize: 17 }}>{isEmailSecret(e.label) ? "🔒" : "✉️"}</span>
               <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.user}</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{e.host || ""}{e.count ? ` · ${e.count} correos` : ""}</div></div>
-              {e.kind === "imap" ? <button onClick={() => removeEmail(e.label)} style={{ color: "var(--danger)", fontSize: 15 }} data-tip="Quitar">✕</button> : null}
+              {secretUnlocked ? <button onClick={() => toggleEmailSecret(e.label)} data-tip={isEmailSecret(e.label) ? "Dejar de ocultar" : "Marcar secreta"} style={{ fontSize: 11.5, fontWeight: 600, flex: "0 0 auto", color: isEmailSecret(e.label) ? "var(--accent)" : "var(--muted)" }}>{isEmailSecret(e.label) ? "🔒 secreta" : "☐ secreta"}</button> : null}
+              {e.kind === "imap" ? <button onClick={() => setConfirm({ title: <>¿Eliminar la cuenta {e.user}?</>, body: "Vas a dejar de recibir sus mensajes.", onYes: () => removeEmail(e.label) })} style={{ color: "var(--danger)", fontSize: 15, flex: "0 0 auto" }} data-tip="Quitar">✕</button> : null}
             </div>
           )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Todavía no conectaste ninguna bandeja.</div>}
           {showEmail ? (
@@ -1181,10 +1748,11 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
               <input className="modalinput" placeholder="Nombre (opcional, ej: Trabajo)" value={em.name} onChange={(e) => setEm((s) => ({ ...s, name: e.target.value }))} />
               <input className="modalinput" placeholder="tu@correo.com" value={em.user} onChange={(e) => setEm((s) => ({ ...s, user: e.target.value }))} autoCapitalize="none" spellCheck={false} />
               <input className="modalinput" placeholder="Contraseña de aplicación" type="password" value={em.pass} onChange={(e) => setEm((s) => ({ ...s, pass: e.target.value }))} />
+              {secretUnlocked ? <button onClick={() => setEmSecret((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, margin: "2px 0 10px", color: emSecret ? "var(--accent)" : "var(--muted)" }}>{emSecret ? "☑" : "☐"} 🔒 Marcar como cuenta secreta</button> : null}
               <div className="modalrow"><button className="mbtn" onClick={addEmail} disabled={busy}>{busy ? "Conectando…" : "Conectar"}</button><button className="mbtn ghost" onClick={() => setShowEmail(false)}>Cancelar</button></div>
             </div>
           ) : <button className="setadd" onClick={() => setShowEmail(true)}>➕ Agregar cuenta de correo</button>}
-          <div className="cfg-note2">Los demás canales (WhatsApp, Telegram, Teams, Slack, calendarios) se vinculan desde el <b>servidor</b> de tu hub o desde la app web. Importar historial de WhatsApp está en la barra lateral, en Herramientas.</div>
+          <MessagingChannels onToast={onToast} secretUnlocked={secretUnlocked} secret={secret} reloadSecret={reloadSecret} />
         </>)}
         {tab === "ia" && (<>
           <label className="modallabel" style={{ marginTop: 6 }}>Motor de IA — tus keys (BYOK)</label>
@@ -1218,7 +1786,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
                   <div style={{ fontWeight: 600, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>{a.name}{a.exhausted ? <span className="apbadge">AGOTADA</span> : null}</div>
                   <div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{a.runs || 0} runs · ${(a.usd || 0).toFixed ? (a.usd || 0).toFixed(2) : a.usd}{a.hint ? ` · ••••${a.hint}` : ""}</div>
                 </div>
-                <button onClick={() => removeAp(a.id)} disabled={apBusy} style={{ color: "var(--danger)", fontSize: 15 }} data-tip="Quitar">✕</button>
+                <button onClick={() => setConfirm({ title: <>¿Quitar la cuenta Apify {a.name}?</>, body: "Se deja de usar para investigar contactos.", confirmLabel: "Quitar cuenta", onYes: () => removeAp(a.id) })} disabled={apBusy} style={{ color: "var(--danger)", fontSize: 15 }} data-tip="Quitar">✕</button>
               </div>
             )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Sin cuentas — agregá una para investigar contactos.</div>}
             {showAp ? (
@@ -1257,6 +1825,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast }: { onClose: () => v
           <div className="cfg-note2" style={{ marginTop: 8 }}>🕊️ El modo encubierto (El Santo) se configura por conversación, desde el 🕊️ en su cabecera.</div>
         </div>
       </>)}
+      {confirm ? <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={confirm.confirmLabel} onCancel={() => setConfirm(null)} onConfirm={() => { const y = confirm.onYes; setConfirm(null); y() }} /> : null}
     </div></div>
   )
 }

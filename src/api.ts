@@ -8,6 +8,17 @@ export const isDesktopApp = typeof (window as any).__TAURI_INTERNALS__ !== "unde
 let BASE = localStorage.getItem("hubUrl") || ""
 let SID = localStorage.getItem("sid") || ""
 
+// 🔒 CUENTAS SECRETAS: token de la sesión secreta (2º PIN) SOLO en memoria — nunca a localStorage/disco. Al desbloquear se llena;
+// al bloquear/perder foco se vacía. Viaja como header x-secret-token por el lado nativo (Rust) en CADA llamada (hub_fetch/hub_upload).
+let SECRET: string | null = null
+// hay un 2º PIN configurado en este hub → NO cachear/persistir mensajes en local (una línea oculta no debe quedar en disco). El server filtra.
+let SECRET_PIN_SET = false
+export const getSecretToken = () => SECRET
+export const setSecretToken = (t: string | null) => { SECRET = t }
+export const secretOn = () => !!SECRET
+export const isSecretPinSet = () => SECRET_PIN_SET
+export const setSecretPinSet = (b: boolean) => { SECRET_PIN_SET = b }
+
 export const getBase = () => BASE
 export function setBase(url: string) {
   BASE = String(url || "").trim().replace(/\/+$/, "")
@@ -23,6 +34,7 @@ async function j(path: string, opts: { method?: string; body?: string } = {}) {
     method: opts.method || "GET",
     body: opts.body ?? null,
     cookie: SID || null,
+    secret: SECRET, // 🔒 header x-secret-token cuando está desbloqueado (null = no se manda)
   })) as { status: number; body: string }
   if (r.status === 401) { const e: any = new Error("no autorizado"); e.code = 401; throw e }
   if (r.status >= 400) { const e: any = new Error("HTTP " + r.status); e.code = r.status; throw e }
@@ -33,7 +45,7 @@ async function j(path: string, opts: { method?: string; body?: string } = {}) {
 async function jUpload(path: string, contentType: string, bytesB64: string) {
   if (!isDesktopApp) throw new Error("Abrí la app Pipe (ventana nativa).")
   const r = (await invoke("hub_upload", {
-    url: BASE + path, method: "POST", contentType, bodyB64: bytesB64, cookie: SID || null,
+    url: BASE + path, method: "POST", contentType, bodyB64: bytesB64, cookie: SID || null, secret: SECRET, // 🔒 x-secret-token
   })) as { status: number; body: string }
   if (r.status >= 400) { const e: any = new Error("HTTP " + r.status); e.code = r.status; throw e }
   try { return JSON.parse(r.body || "{}") } catch { return {} }
@@ -136,6 +148,44 @@ export const getHubConfig = () => j("/api/hub-config")
 export const getAccounts = () => j("/api/accounts")
 export const addEmailAccount = (b: { user: string; pass: string; name?: string }) => j("/api/accounts/email", { method: "POST", body: JSON.stringify(b) })
 export const removeEmailAccount = (label: string) => j("/api/accounts/email/remove", { method: "POST", body: JSON.stringify({ label }) })
+// ── CANALES DE MENSAJERÍA (paridad con web) ──
+// estado AUTORITATIVO de canales conectados: WhatsApp (bridge=Matrix, baileys=directo), email, y "otros" (Telegram/Teams/Notion/Calendar con ok)
+export type HubStatus = {
+  whatsapp?: { bridge?: string[]; baileys?: { acc?: string; num?: string }[] }
+  email?: any[]
+  otros?: { name: string; key: string; ok: boolean; last?: number; guide?: string; rm?: boolean }[]
+}
+export const getStatus = (): Promise<HubStatus> => j("/api/status")
+// cuentas conectadas de un bridge (whatsapp/instagram/facebook/linkedin/discord). refresh=1 re-consulta el bridge (repuebla listas vacías/viejas)
+export const getMatrixLogins = (net: string, refresh = false): Promise<{ net?: string; accounts?: string[] }> =>
+  j("/api/matrix-logins?net=" + encodeURIComponent(net) + (refresh ? "&refresh=1" : ""))
+// números de WhatsApp caídos (recibís pero no podés responder → hay que revincular)
+export const getWaStatus = (): Promise<{ loggedOut?: string[] }> => j("/api/wa/status")
+// integraciones conectables desde la app (token/URL cifrados en el server)
+export type Integrations = { slack: { configured: boolean; team: string }; signal: { configured: boolean; number: string } }
+export const getIntegrations = (): Promise<Integrations> => j("/api/integrations")
+export const setSlack = (token: string): Promise<{ ok?: boolean; team?: string; error?: string }> => j("/api/integrations/slack", { method: "POST", body: JSON.stringify({ token }) })
+export const removeSlack = (): Promise<{ ok?: boolean }> => j("/api/integrations/slack/remove", { method: "POST", body: "{}" })
+export const setSignal = (url: string, number: string): Promise<{ ok?: boolean; error?: string }> => j("/api/integrations/signal", { method: "POST", body: JSON.stringify({ url, number }) })
+export const removeSignal = (): Promise<{ ok?: boolean }> => j("/api/integrations/signal/remove", { method: "POST", body: "{}" })
+// ── WhatsApp: vincular vía el bridge Matrix del server (QR o código por número) ──
+// arranca el proceso de vinculación (net=whatsapp); phone opcional → login por código en vez de QR
+export const matrixLink = (net: string, phone = ""): Promise<{ started?: boolean; net?: string; flow?: string }> =>
+  j("/api/matrix-link?" + q({ net, phone }), { method: "POST", body: "{}" })
+// estado del bridge: { connected, code (login por número), qr (¿hay PNG listo?) }
+export const matrixStatus = (net: string): Promise<{ connected?: boolean; code?: string; qr?: boolean }> => j("/api/matrix-status?net=" + encodeURIComponent(net))
+// el PNG del QR (autenticado) como data URI para el <img>. Cache-buster para forzar refresco.
+export const matrixQrImage = (net: string): Promise<string> => hubImage("/api/matrix-qr?net=" + encodeURIComponent(net) + "&t=" + Date.now())
+// vinculación por TOKEN (Discord: su QR suele fallar) → arranca el login con el token; luego se pollea matrixStatus(net)
+export const matrixLinkToken = (net: string, token: string): Promise<{ started?: boolean; net?: string }> =>
+  j("/api/matrix-link-token?net=" + encodeURIComponent(net), { method: "POST", body: JSON.stringify({ token }) })
+// ── Telegram self-service: teléfono → código → 2FA opcional (GramJS vía el server) ──
+export type TelegramStatus = { connected?: boolean; configured?: boolean; stage?: string; error?: string }
+export const telegramStatus = (): Promise<TelegramStatus> => j("/api/telegram/status")
+export const telegramStart = (payload: { phone: string; apiId?: string; apiHash?: string }): Promise<{ ok?: boolean; error?: string }> => j("/api/telegram/start", { method: "POST", body: JSON.stringify(payload) })
+export const telegramCode = (code: string): Promise<any> => j("/api/telegram/code", { method: "POST", body: JSON.stringify({ code }) })
+export const telegramPassword = (password: string): Promise<any> => j("/api/telegram/password", { method: "POST", body: JSON.stringify({ password }) })
+export const telegramConnected = (): Promise<{ ok?: boolean }> => j("/api/telegram/connected", { method: "POST", body: "{}" })
 export const getLlmConfig = () => j("/api/llm-config")
 export const testLlm = (b: { provider: string; token: string }) => j("/api/llm-config/test", { method: "POST", body: JSON.stringify(b) })
 export const saveLlm = (b: any) => j("/api/llm-config/save", { method: "POST", body: JSON.stringify(b) })
@@ -208,9 +258,25 @@ export const hubImage = (path: string): Promise<string> =>
 export const hubOpenFile = (path: string, filename?: string): Promise<string> =>
   invoke("hub_open_file", { url: /^https?:\/\//.test(path) ? path : BASE + path, filename: filename || null, cookie: SID || null }) as Promise<string>
 
+// ── 🔒 CUENTAS SECRETAS (paridad con web) — el token viaja por Rust (x-secret-token), acá solo los endpoints ──
+// estado del 2º PIN: ¿está configurado? ¿hay sesión secreta abierta ahora?
+export const getSecretStatus = (): Promise<{ pinSet?: boolean; unlocked?: boolean }> => j("/api/secret/status")
+// crear el 2º PIN por primera vez (6-12 dígitos, distinto al de entrada)
+export const secretSetup = (pin: string): Promise<{ ok?: boolean; error?: string }> => j("/api/secret/setup", { method: "POST", body: JSON.stringify({ pin }) })
+// desbloquear con el 2º PIN → { ok, token } (guardar el token SOLO en memoria vía setSecretToken) | 401 { error }
+export const secretUnlock = (pin: string): Promise<{ ok?: boolean; token?: string; error?: string }> => j("/api/secret/unlock", { method: "POST", body: JSON.stringify({ pin }) })
+// cerrar la sesión secreta en el server (además de vaciar el token local)
+export const secretLock = (): Promise<{ ok?: boolean }> => j("/api/secret/lock", { method: "POST", body: "{}" })
+// cuentas/números marcados como secretos (403 si está bloqueado) → { accounts:[{channel,account}], numbers:["51999..."] }
+export const getSecretState = (): Promise<{ accounts: { channel: string; account: string }[]; numbers: string[] }> => j("/api/secret/state")
+// marcar/desmarcar un número de WhatsApp como secreto (403 si bloqueado)
+export const secretSetWa = (number: string, secret: boolean): Promise<{ ok?: boolean; error?: string }> => j("/api/secret/wa", { method: "POST", body: JSON.stringify({ number, secret }) })
+// marcar/desmarcar una cuenta (ej. email) como secreta (403 si bloqueado)
+export const secretSetAccount = (channel: string, account: string, secret: boolean): Promise<{ ok?: boolean; error?: string }> => j("/api/secret/account", { method: "POST", body: JSON.stringify({ channel, account, secret }) })
+
 export type Thread = {
   key: string; name: string; lastText?: string; ts?: number; unread?: number; unseen?: number
   channels?: string[]; bucket?: string; photo?: string; initials?: string; email?: string; lastDir?: string; autopilot?: boolean
   group?: boolean; pinned?: boolean; silenced?: boolean; escalated?: boolean; escalatedReason?: string
 }
-export type Msg = { id: string; dir: string; name?: string; text?: string; ts?: number; channel?: string; media?: string | null; mediaType?: string | null; auto?: boolean; summary?: string; covert?: { text: string; style?: string } }
+export type Msg = { id: string; dir: string; name?: string; text?: string; ts?: number; channel?: string; media?: string | null; mediaType?: string | null; auto?: boolean; summary?: string; covert?: { text: string; style?: string }; secret?: boolean }
