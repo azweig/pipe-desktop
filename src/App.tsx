@@ -7,18 +7,14 @@ import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secre
 import { chooseAndSendMedia, b64ToBlob, mimeFromName } from "./media"
 import { cacheLoad, cacheSave, cachePurge } from "./cache"
 import Calendar from "./Calendar"
+// Pure display helpers (colorOf/initials/hhmm/fmtDur/ago) live in ./lib/format so they can be unit-tested.
+import { colorOf, initials, hhmm, fmtDur, ago } from "./lib/format"
 
 const CH: Record<string, { c: string; label: string }> = {
   whatsapp: { c: "var(--wa)", label: "WhatsApp" }, teams: { c: "var(--teams)", label: "Teams" },
   email: { c: "var(--gmail)", label: "Gmail" }, telegram: { c: "var(--tg)", label: "Telegram" },
   slack: { c: "#611f69", label: "Slack" }, signal: { c: "#3a76f0", label: "Signal" }, meeting: { c: "var(--accent)", label: "Reunión" },
 }
-const AV = ["#6366f1", "#e0872b", "#22a06b", "#e2483d", "#2aabee", "#a855f7", "#ec4899", "#14b8a6"]
-const colorOf = (s: string) => AV[[...(s || "?")].reduce((a, c) => a + c.charCodeAt(0), 0) % AV.length]
-const initials = (n: string) => (n || "?").split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
-const hhmm = (ts?: number) => ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : ""
-const fmtDur = (s?: number) => { if (!s || !isFinite(s)) return ""; s = Math.round(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") }
-const ago = (ts?: number) => { if (!ts) return ""; const d = (Date.now() - ts) / 86400000; if (d < 1) return hhmm(ts); if (d < 2) return "Ayer"; return new Date(ts).toLocaleDateString("es", { day: "numeric", month: "short" }) }
 // etiqueta legible de la fecha detectada para agendar ({year,month,day,hour,minute})
 function schedLabel(s: any) {
   const d = s?.date; if (!d?.day) return ""

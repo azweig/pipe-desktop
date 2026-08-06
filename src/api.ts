@@ -31,6 +31,7 @@ async function j(path: string, opts: { method?: string; body?: string } = {}) {
   if (!isDesktopApp) throw new Error("Abrí la app Pipe (ventana nativa), no el navegador.")
   const r = (await invoke("hub_fetch", {
     url: BASE + path,
+    base: BASE, // 🔒 Rust valida url==hub: cookie/token secreto SOLO viajan al hub configurado (anti-exfiltración)
     method: opts.method || "GET",
     body: opts.body ?? null,
     cookie: SID || null,
@@ -45,7 +46,7 @@ async function j(path: string, opts: { method?: string; body?: string } = {}) {
 async function jUpload(path: string, contentType: string, bytesB64: string) {
   if (!isDesktopApp) throw new Error("Abrí la app Pipe (ventana nativa).")
   const r = (await invoke("hub_upload", {
-    url: BASE + path, method: "POST", contentType, bodyB64: bytesB64, cookie: SID || null, secret: SECRET, // 🔒 x-secret-token
+    url: BASE + path, base: BASE, method: "POST", contentType, bodyB64: bytesB64, cookie: SID || null, secret: SECRET, // 🔒 base: solo el hub
   })) as { status: number; body: string }
   if (r.status >= 400) { const e: any = new Error("HTTP " + r.status); e.code = r.status; throw e }
   try { return JSON.parse(r.body || "{}") } catch { return {} }
@@ -253,10 +254,10 @@ export const importWhatsAppZipB64 = (b64: string, o: WaImportOpts = {}): Promise
   jUpload("/api/import/whatsapp-zip?" + q({ name: o.name || "", order: o.order || "auto", tz: o.tz ?? 0, group: o.group ? "1" : "" }), "application/zip", b64)
 // baja una foto/avatar del hub (autenticada) como data URI, para el <img>
 export const hubImage = (path: string): Promise<string> =>
-  invoke("hub_image", { url: /^https?:\/\//.test(path) ? path : BASE + path, cookie: SID || null }) as Promise<string>
+  invoke("hub_image", { url: /^https?:\/\//.test(path) ? path : BASE + path, base: BASE, cookie: SID || null }) as Promise<string> // 🔒 base: Rust rechaza si no es el hub
 // baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda y lo abre con la app por defecto del SO → devuelve la ruta local
 export const hubOpenFile = (path: string, filename?: string): Promise<string> =>
-  invoke("hub_open_file", { url: /^https?:\/\//.test(path) ? path : BASE + path, filename: filename || null, cookie: SID || null }) as Promise<string>
+  invoke("hub_open_file", { url: /^https?:\/\//.test(path) ? path : BASE + path, base: BASE, filename: filename || null, cookie: SID || null }) as Promise<string>
 
 // ── 🔒 CUENTAS SECRETAS (paridad con web) — el token viaja por Rust (x-secret-token), acá solo los endpoints ──
 // estado del 2º PIN: ¿está configurado? ¿hay sesión secreta abierta ahora?

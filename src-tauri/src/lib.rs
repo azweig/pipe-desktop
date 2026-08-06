@@ -1,7 +1,18 @@
+// 🔒 SEGURIDAD: los comandos que adjuntan la cookie de sesión + el token del 2º PIN SOLO pueden hablar con el hub configurado (`base`).
+// Sin esto, una URL absoluta metida en un mensaje (path de media/adjunto) haría que el lado nativo POSTee el token secreto a un host
+// atacante. Comparamos el ORIGIN (esquema+host+puerto): dos orígenes opacos (file:/data:) nunca son iguales → quedan rechazados.
+fn same_origin(url: &str, base: &str) -> bool {
+  match (reqwest::Url::parse(url), reqwest::Url::parse(base)) {
+    (Ok(u), Ok(b)) => u.origin() == b.origin(),
+    _ => false,
+  }
+}
+
 // Petición al hub desde el lado NATIVO (Rust/reqwest): sin CORS, sin Origin de browser → pasa el gate del hub como el mobile.
 // La UI (webview) llama a este comando por IPC. El sid de sesión viene en el body de /api/auth; se manda como header Cookie.
 #[tauri::command]
-async fn hub_fetch(url: String, method: String, body: Option<String>, cookie: Option<String>, secret: Option<String>) -> Result<serde_json::Value, String> {
+async fn hub_fetch(url: String, base: String, method: String, body: Option<String>, cookie: Option<String>, secret: Option<String>) -> Result<serde_json::Value, String> {
+  if !same_origin(&url, &base) { return Err("destino no permitido (solo el hub configurado)".into()); }
   let client = reqwest::Client::builder()
     .user_agent("Pipe-Desktop")
     .build()
@@ -25,7 +36,8 @@ async fn hub_fetch(url: String, method: String, body: Option<String>, cookie: Op
 // Sube BINARIO al hub (nota de voz / adjunto): recibe el cuerpo en base64 desde el webview, lo decodifica y POSTea bytes crudos
 // con el Content-Type real (audio/ogg, image/jpeg, …). Sin esto la desktop no podría mandar audios ni archivos (hub_fetch es solo texto).
 #[tauri::command]
-async fn hub_upload(url: String, method: String, content_type: String, body_b64: String, cookie: Option<String>, secret: Option<String>) -> Result<serde_json::Value, String> {
+async fn hub_upload(url: String, base: String, method: String, content_type: String, body_b64: String, cookie: Option<String>, secret: Option<String>) -> Result<serde_json::Value, String> {
+  if !same_origin(&url, &base) { return Err("destino no permitido (solo el hub configurado)".into()); }
   use base64::Engine;
   let bytes = base64::engine::general_purpose::STANDARD.decode(body_b64.as_bytes()).map_err(|e| e.to_string())?;
   let client = reqwest::Client::builder().user_agent("Pipe-Desktop").build().map_err(|e| e.to_string())?;
@@ -46,7 +58,8 @@ async fn hub_upload(url: String, method: String, content_type: String, body_b64:
 
 // Baja una imagen del hub (avatar/foto) autenticada y la devuelve como data URI → el <img> la muestra sin CORS ni cookies del webview.
 #[tauri::command]
-async fn hub_image(url: String, cookie: Option<String>) -> Result<String, String> {
+async fn hub_image(url: String, base: String, cookie: Option<String>) -> Result<String, String> {
+  if !same_origin(&url, &base) { return Err("destino no permitido (solo el hub configurado)".into()); }
   let client = reqwest::Client::builder().user_agent("Pipe-Desktop").build().map_err(|e| e.to_string())?;
   let mut req = client.get(&url);
   if let Some(c) = cookie {
@@ -65,7 +78,8 @@ async fn hub_image(url: String, cookie: Option<String>) -> Result<String, String
 // por defecto del SO (Vista Previa/Word/Excel/…). Espejo de hub_image pero para cualquier tipo (pdf/docx/xlsx/…): el webview no
 // puede descargar con la cookie de sesión, así que la descarga+apertura la hace el lado nativo. Devuelve la ruta del archivo.
 #[tauri::command]
-async fn hub_open_file(url: String, filename: Option<String>, cookie: Option<String>) -> Result<String, String> {
+async fn hub_open_file(url: String, base: String, filename: Option<String>, cookie: Option<String>) -> Result<String, String> {
+  if !same_origin(&url, &base) { return Err("destino no permitido (solo el hub configurado)".into()); }
   let client = reqwest::Client::builder().user_agent("Pipe-Desktop").build().map_err(|e| e.to_string())?;
   let mut req = client.get(&url);
   if let Some(c) = cookie {
@@ -81,8 +95,10 @@ async fn hub_open_file(url: String, filename: Option<String>, cookie: Option<Str
     }
   }
   if name.is_empty() { name = "documento".to_string(); }
-  // saneo del nombre para el sistema de archivos
+  // saneo del nombre para el sistema de archivos + quita guiones/puntos iniciales (evita dotfiles, "..", arg-injection en open/xdg-open)
   let name: String = name.chars().map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c }).collect();
+  let name = name.trim_start_matches(['-', '.', ' ']).to_string();
+  let name = if name.is_empty() { "documento".to_string() } else { name };
   let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
   let mut path = std::env::temp_dir();
   path.push("pipe-downloads");
