@@ -157,6 +157,25 @@ export type HubStatus = {
   otros?: { name: string; key: string; ok: boolean; last?: number; guide?: string; rm?: boolean }[]
 }
 export const getStatus = (): Promise<HubStatus> => j("/api/status")
+// ── CATÁLOGO DE CANALES (registro del server) — la LISTA de canales conectables ya NO va hardcodeada en el cliente ──
+// El server es la fuente de verdad: qué canales existen, su etiqueta/color de marca y CÓMO se conectan (connect.method).
+// connect.method: "matrix-bridge" (WhatsApp/IG/FB/LinkedIn, multi-cuenta) | "matrix-token" (Discord) | "telegram-login"
+//                 | "integration" (Slack/Signal, por connect.provider) | "email-account" | "server" (Notion/M365/Google).
+export type ChannelDef = {
+  id: string
+  label: string
+  brand?: string // color de marca (para el círculo fallback si no hay emoji para este id)
+  kind: string // "messaging" | "email" | … — la sección de Mensajería itera kind==="messaging"
+  connect: {
+    method: "matrix-bridge" | "matrix-token" | "telegram-login" | "integration" | "email-account" | "server"
+    net?: string // red del bridge Matrix (whatsapp/instagram/facebook/linkedin/discord)
+    provider?: string // integración concreta (slack/signal) cuando method==="integration"
+    fields?: { key: string; label?: string; type?: string; placeholder?: string }[]
+    multi?: boolean // multi-cuenta ("＋ Agregar cuenta")
+  }
+  canSend?: boolean
+}
+export const getChannelsCatalog = (): Promise<{ channels: ChannelDef[] }> => j("/api/channels/catalog")
 // cuentas conectadas de un bridge (whatsapp/instagram/facebook/linkedin/discord). refresh=1 re-consulta el bridge (repuebla listas vacías/viejas)
 export const getMatrixLogins = (net: string, refresh = false): Promise<{ net?: string; accounts?: string[] }> =>
   j("/api/matrix-logins?net=" + encodeURIComponent(net) + (refresh ? "&refresh=1" : ""))

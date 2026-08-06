@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -1332,7 +1332,7 @@ function WaLink({ onToast, onDone, net = "whatsapp", label = "WhatsApp", instr }
   )
 }
 // ── Discord: vincula por TOKEN (su QR suele fallar) → /api/matrix-link-token, luego se pollea matrixStatus("discord") ──
-function DiscordLink({ onToast, onDone }: { onToast: (m: string) => void; onDone: () => void }) {
+function DiscordLink({ onToast, onDone, net = "discord", label = "Discord" }: { onToast: (m: string) => void; onDone: () => void; net?: string; label?: string }) {
   const [tok, setTok] = useState("")
   const [msg, setMsg] = useState<Msg2>(null)
   const [started, setStarted] = useState(false)
@@ -1343,7 +1343,7 @@ function DiscordLink({ onToast, onDone }: { onToast: (m: string) => void; onDone
     const t = tok.trim()
     if (!t) { setMsg({ text: "Pegá el token primero.", kind: "err" }); return }
     setMsg({ text: "Vinculando…", kind: "info" })
-    await matrixLinkToken("discord", t).catch(() => {})
+    await matrixLinkToken(net, t).catch(() => {})
     setStarted(true)
   }
   // poll de estado cada ~3s hasta conectar (mismo patrón que WaLink)
@@ -1351,9 +1351,9 @@ function DiscordLink({ onToast, onDone }: { onToast: (m: string) => void; onDone
     if (!started) return
     let alive = true, t: any
     const tick = async () => {
-      const r = await matrixStatus("discord").catch(() => null)
+      const r = await matrixStatus(net).catch(() => null)
       if (!alive) return
-      if (r?.connected) { setConnected(true); onToast("✓ ¡Discord conectado!"); setTimeout(() => doneRef.current(), 1400); return }
+      if (r?.connected) { setConnected(true); onToast("✓ ¡" + label + " conectado!"); setTimeout(() => doneRef.current(), 1400); return }
       if (alive) t = setTimeout(tick, 3000)
     }
     t = setTimeout(tick, 700)
@@ -1362,7 +1362,7 @@ function DiscordLink({ onToast, onDone }: { onToast: (m: string) => void; onDone
 
   return (
     <div className="setform">
-      <div className="modalsub" style={{ marginBottom: 10 }}>El QR de Discord suele fallar. Lo confiable es tu <b>token</b>.</div>
+      <div className="modalsub" style={{ marginBottom: 10 }}>El QR de {label} suele fallar. Lo confiable es tu <b>token</b>.</div>
       <details style={{ marginBottom: 10 }}>
         <summary style={{ cursor: "pointer", color: "var(--accent)", fontWeight: 600, fontSize: 13 }}>🔑 ¿Cómo saco mi token?</summary>
         <ol style={{ paddingLeft: 20, fontSize: 12.5, lineHeight: 1.6, margin: "9px 0 0" }}>
@@ -1375,7 +1375,7 @@ function DiscordLink({ onToast, onDone }: { onToast: (m: string) => void; onDone
       <textarea className="modalinput" rows={2} placeholder="Pegá tu token de Discord acá" value={tok} spellCheck={false} autoCapitalize="none" style={{ resize: "none" }} onChange={(e) => { setTok(e.target.value); setMsg(null) }} />
       <button className="mbtn" style={{ width: "100%" }} onClick={submit}>Vincular con token</button>
       <div style={{ marginTop: 12, textAlign: "center", minHeight: 30 }}>
-        {connected ? <b style={{ color: "var(--ok)" }}>✓ ¡Discord conectado!</b> : (msg ? <span style={{ fontSize: 12.5, color: msgColor(msg) }}>{msg.text}</span> : null)}
+        {connected ? <b style={{ color: "var(--ok)" }}>✓ ¡{label} conectado!</b> : (msg ? <span style={{ fontSize: 12.5, color: msgColor(msg) }}>{msg.text}</span> : null)}
       </div>
       <button className="setcancel" onClick={onDone}>Cerrar</button>
     </div>
@@ -1445,14 +1445,33 @@ function TgLink({ configured, onToast, onDone }: { configured: boolean; onToast:
     </div>
   )
 }
-// ── Sección "Mensajería" en Configuración → Canales: WhatsApp / Telegram / Slack / Signal + guía de canales del servidor ──
+// ── Íconos/emoji por canal (CLIENTE): el catálogo del server trae label+brand; el emoji es cosmético y vive acá. ──
+// Un canal FUTURO que el server agregue sin entrada acá cae al fallback: círculo con la inicial en color de marca.
+const CH_EMOJI: Record<string, string> = {
+  whatsapp: "📲", instagram: "📷", facebook: "🔵", linkedin: "🔗",
+  telegram: "✈️", discord: "🎮", slack: "💼", signal: "🔒",
+}
+// Lista de RESPALDO si /api/channels/catalog falla: NO dejamos el panel vacío — se cae a lo que estaba hardcodeado.
+const FALLBACK_CHANNELS: ChannelDef[] = [
+  { id: "whatsapp", label: "WhatsApp", brand: "#25d366", kind: "messaging", connect: { method: "matrix-bridge", net: "whatsapp", multi: true }, canSend: true },
+  { id: "instagram", label: "Instagram", brand: "#e1306c", kind: "messaging", connect: { method: "matrix-bridge", net: "instagram", multi: true }, canSend: true },
+  { id: "facebook", label: "Facebook", brand: "#1877f2", kind: "messaging", connect: { method: "matrix-bridge", net: "facebook", multi: true }, canSend: true },
+  { id: "linkedin", label: "LinkedIn", brand: "#0a66c2", kind: "messaging", connect: { method: "matrix-bridge", net: "linkedin", multi: true }, canSend: true },
+  { id: "telegram", label: "Telegram", brand: "#229ed9", kind: "messaging", connect: { method: "telegram-login" }, canSend: true },
+  { id: "discord", label: "Discord", brand: "#5865f2", kind: "messaging", connect: { method: "matrix-token", net: "discord", multi: true }, canSend: true },
+  { id: "slack", label: "Slack", brand: "#611f69", kind: "messaging", connect: { method: "integration", provider: "slack" }, canSend: true },
+  { id: "signal", label: "Signal", brand: "#3a76f0", kind: "messaging", connect: { method: "integration", provider: "signal" }, canSend: true },
+]
+// ── Sección "Mensajería" en Configuración → Canales. La LISTA viene del catálogo del server (registro de conectores);
+//    los FLUJOS de conexión (WaLink/DiscordLink/TgLink/integraciones) NO cambian — solo cambia de dónde sale la lista. ──
 function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { onToast: (m: string) => void; secretUnlocked: boolean; secret: { accounts: { channel: string; account: string }[]; numbers: string[] }; reloadSecret: () => void | Promise<void> }) {
+  const [channels, setChannels] = useState<ChannelDef[]>(FALLBACK_CHANNELS) // arranca con el respaldo → nunca panel vacío
   const [integ, setInteg] = useState<any>(null)
   const [waDown, setWaDown] = useState<string[]>([])
   const [tg, setTg] = useState<any>({})
   const [status, setStatus] = useState<any>(null) // /api/status — cuentas WhatsApp conectadas (autoritativo)
   const [logins, setLogins] = useState<Record<string, string[]>>({}) // cuentas conectadas por bridge (ig/fb/li/discord)
-  const [open, setOpen] = useState<null | "wa" | "ig" | "fb" | "li" | "tg" | "discord" | "slack" | "signal">(null)
+  const [open, setOpen] = useState<string | null>(null) // canal expandido (por ch.id)
   const [slkTok, setSlkTok] = useState(""); const [slkMsg, setSlkMsg] = useState<Msg2>(null); const [slkBusy, setSlkBusy] = useState(false)
   const [sgUrl, setSgUrl] = useState(""); const [sgNum, setSgNum] = useState(""); const [sgMsg, setSgMsg] = useState<Msg2>(null); const [sgBusy, setSgBusy] = useState(false)
 
@@ -1460,16 +1479,27 @@ function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { 
     const [i, w, t, s] = await Promise.all([getIntegrations().catch(() => null), getWaStatus().catch(() => null), telegramStatus().catch(() => null), getStatus().catch(() => null)])
     if (i) setInteg(i); if (w) setWaDown(w.loggedOut || []); if (t) setTg(t); if (s) setStatus(s)
   }
-  // cuentas conectadas de los bridges multi-cuenta (IG/FB/LinkedIn/Discord). refresh=1 repuebla listas viejas/vacías.
+  // cuentas conectadas de los bridges multi-cuenta. Los `net` salen del CATÁLOGO (bridge/token, menos whatsapp que usa /api/status).
   const reloadLogins = async () => {
-    for (const net of ["instagram", "facebook", "linkedin", "discord"]) {
+    const nets = channels
+      .filter((c) => (c.connect.method === "matrix-bridge" || c.connect.method === "matrix-token") && c.connect.net && c.connect.net !== "whatsapp")
+      .map((c) => c.connect.net!)
+    for (const net of nets) {
       const r = await getMatrixLogins(net, true).catch(() => null)
       if (r) setLogins((prev) => ({ ...prev, [net]: r.accounts || [] }))
     }
   }
-  useEffect(() => { reload(); reloadLogins() }, [])
-  // al desbloquear/bloquear el PIN: re-pedir estado (con el token aparecen/desaparecen las cuentas secretas)
-  useEffect(() => { reload(); reloadLogins() }, [secretUnlocked])
+  // catálogo del server = fuente de verdad de la LISTA. Si falla, queda el respaldo (resiliencia).
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const cat = await getChannelsCatalog().catch(() => null)
+      if (alive && cat?.channels?.length) setChannels(cat.channels)
+    })()
+    return () => { alive = false }
+  }, [])
+  // al montar, al llegar el catálogo (cambia `channels`) y al desbloquear/bloquear el PIN → re-pedir estado + logins
+  useEffect(() => { reload(); reloadLogins() }, [channels, secretUnlocked])
   const closePanel = () => { setOpen(null); reload(); reloadLogins() }
 
   const saveSlack = async () => {
@@ -1491,13 +1521,20 @@ function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { 
 
   const slackOn = !!integ?.slack?.configured, signalOn = !!integ?.signal?.configured, tgOn = !!tg?.connected
 
-  const row = (icon: string, name: string, sub: ReactNode, action: ReactNode) => (
+  const row = (icon: ReactNode, name: string, sub: ReactNode, action: ReactNode) => (
     <div className="setrow">
-      <span style={{ fontSize: 17 }}>{icon}</span>
+      {icon}
       <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>{name}</div><div style={{ fontSize: 11.5, color: "var(--muted2)" }}>{sub}</div></div>
       {action}
     </div>
   )
+  // ícono del canal: emoji del mapa cliente, o (canal desconocido) un círculo con la inicial en el color de marca del catálogo
+  const iconFor = (ch: ChannelDef): ReactNode => {
+    const e = CH_EMOJI[ch.id]
+    if (e) return <span style={{ fontSize: 17 }}>{e}</span>
+    const letter = String(ch.label || ch.id || "?").trim().charAt(0).toUpperCase()
+    return <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: ch.brand || "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, flex: "0 0 auto" }}>{letter}</span>
+  }
   const linkBtn = (label: string, onClick: () => void) => <button onClick={onClick} style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12.5, flex: "0 0 auto" }}>{label}</button>
   const delBtn = (onClick: () => void) => <button onClick={onClick} style={{ color: "var(--danger)", fontSize: 12.5, fontWeight: 600, flex: "0 0 auto" }}>Desconectar</button>
 
@@ -1531,65 +1568,94 @@ function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { 
     </div>
   ))
 
+  // Un canal del catálogo → su fila + flujo de conexión, elegido por connect.method (los flujos NO cambiaron).
+  const renderChannel = (ch: ChannelDef): ReactNode => {
+    const icon = iconFor(ch)
+    const method = ch.connect.method
+    const toggle = () => setOpen(open === ch.id ? null : ch.id)
+    if (method === "matrix-bridge") {
+      // WhatsApp/IG/FB/LinkedIn — bridge Matrix multi-cuenta. WhatsApp usa /api/status; el resto usa /api/matrix-logins.
+      const net = ch.connect.net || ch.id
+      const isWa = net === "whatsapp"
+      const accounts = isWa ? waAccounts : (logins[net] || [])
+      return (
+        <Fragment key={ch.id}>
+          {row(icon, ch.label, <>
+            {acctSub(accounts)}
+            {isWa && waDown.length ? <span style={{ color: "var(--danger)" }}>{accounts.length ? " · " : ""}⚠️ revinculá {waDown.map(fmtAcct).join(", ")}</span> : null}
+          </>, linkBtn(open === ch.id ? "Cerrar" : "＋ Agregar cuenta", toggle))}
+          {acctRows(accounts)}
+          {open === ch.id ? <WaLink net={net} label={ch.label} onToast={onToast} onDone={closePanel}
+            instr={isWa ? undefined : <>Vinculá tu cuenta de {ch.label} por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código con tu app (o usá el código por número). Puede tardar ~30s.</>} /> : null}
+        </Fragment>
+      )
+    }
+    if (method === "matrix-token") {
+      // Discord — vincula por token (su QR suele fallar), multi-cuenta
+      const net = ch.connect.net || ch.id
+      const accounts = logins[net] || []
+      return (
+        <Fragment key={ch.id}>
+          {row(icon, ch.label, acctSub(accounts), linkBtn(open === ch.id ? "Cerrar" : "＋ Agregar cuenta", toggle))}
+          {acctRows(accounts)}
+          {open === ch.id ? <DiscordLink net={net} label={ch.label} onToast={onToast} onDone={closePanel} /> : null}
+        </Fragment>
+      )
+    }
+    if (method === "telegram-login") {
+      return (
+        <Fragment key={ch.id}>
+          {row(icon, ch.label, tgOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓ · solo lectura</span> : "Teléfono + código",
+            tgOn ? <span style={{ color: "var(--ok)", fontSize: 14 }}>✓</span> : linkBtn(open === ch.id ? "Cerrar" : "Conectar", toggle))}
+          {open === ch.id && !tgOn ? <TgLink configured={!!tg?.configured} onToast={onToast} onDone={closePanel} /> : null}
+        </Fragment>
+      )
+    }
+    if (method === "integration") {
+      // Slack / Signal — token/URL cifrados en el server, seleccionados por connect.provider
+      if (ch.connect.provider === "slack") {
+        return (
+          <Fragment key={ch.id}>
+            {row(icon, ch.label, slackOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓{integ?.slack?.team ? ` · ${integ.slack.team}` : ""}</span> : "Con token de app (xoxp/xoxb)",
+              slackOn ? delBtn(disconnectSlack) : linkBtn(open === ch.id ? "Cerrar" : "Conectar", toggle))}
+            {open === ch.id && !slackOn ? (
+              <div className="setform">
+                <div className="modalsub" style={{ marginBottom: 10 }}>Trae tus DMs y canales a la bandeja. Creá una app en <b>api.slack.com/apps</b>, agregá scopes de lectura (<code>channels:history</code>, <code>im:history</code>, <code>users:read</code>…) e instalala; copiá el <b>User OAuth Token</b>.</div>
+                <input className="modalinput" placeholder="Pegá tu token de Slack (xoxp-… o xoxb-…)" value={slkTok} type="password" spellCheck={false} autoCapitalize="none" onChange={(e) => { setSlkTok(e.target.value); setSlkMsg(null) }} />
+                <button className="mbtn" style={{ width: "100%" }} onClick={saveSlack} disabled={slkBusy}>{slkBusy ? "Verificando…" : "Conectar Slack"}</button>
+                {slkMsg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13, color: msgColor(slkMsg) }}>{slkMsg.text}</div> : null}
+              </div>
+            ) : null}
+          </Fragment>
+        )
+      }
+      if (ch.connect.provider === "signal") {
+        return (
+          <Fragment key={ch.id}>
+            {row(icon, ch.label, signalOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓{integ?.signal?.number ? ` · ${integ.signal.number}` : ""}</span> : "signal-cli-rest-api en tu server",
+              signalOn ? delBtn(disconnectSignal) : linkBtn(open === ch.id ? "Cerrar" : "Conectar", toggle))}
+            {open === ch.id && !signalOn ? (
+              <div className="setform">
+                <div className="modalsub" style={{ marginBottom: 10 }}>Se une al <b>mismo hilo</b> que WhatsApp/SMS de cada contacto. Necesitás <b>signal-cli-rest-api</b> corriendo en tu servidor. Poné su URL y tu número.</div>
+                <input className="modalinput" placeholder="http://localhost:8080" value={sgUrl} spellCheck={false} autoCapitalize="none" onChange={(e) => { setSgUrl(e.target.value); setSgMsg(null) }} />
+                <input className="modalinput" placeholder="+51 999 000 000" value={sgNum} inputMode="tel" onChange={(e) => { setSgNum(e.target.value); setSgMsg(null) }} />
+                <button className="mbtn" style={{ width: "100%" }} onClick={saveSignal} disabled={sgBusy}>{sgBusy ? "Guardando…" : "Conectar Signal"}</button>
+                {sgMsg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13, color: msgColor(sgMsg) }}>{sgMsg.text}</div> : null}
+              </div>
+            ) : null}
+          </Fragment>
+        )
+      }
+      return null
+    }
+    // email-account / server u otros métodos no se conectan acá (van en la sección de correo o en el server)
+    return null
+  }
+
   return (<>
     <label className="modallabel" style={{ marginTop: 16 }}>Mensajería</label>
-    {/* WhatsApp — MULTI-CUENTA: lista las cuentas conectadas + "Agregar cuenta" */}
-    {row("📲", "WhatsApp", <>
-      {acctSub(waAccounts)}
-      {waDown.length ? <span style={{ color: "var(--danger)" }}>{waAccounts.length ? " · " : ""}⚠️ revinculá {waDown.map(fmtAcct).join(", ")}</span> : null}
-    </>, linkBtn(open === "wa" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "wa" ? null : "wa")))}
-    {acctRows(waAccounts)}
-    {open === "wa" ? <WaLink onToast={onToast} onDone={closePanel} /> : null}
-    {/* Instagram — mismo bridge Matrix (QR o código), multi-cuenta */}
-    {row("📷", "Instagram", acctSub(logins.instagram || []),
-      linkBtn(open === "ig" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "ig" ? null : "ig")))}
-    {acctRows(logins.instagram || [])}
-    {open === "ig" ? <WaLink net="instagram" label="Instagram" onToast={onToast} onDone={closePanel}
-      instr={<>Vinculá tu cuenta de Instagram por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código con tu app (o usá el código por número). Puede tardar ~30s.</>} /> : null}
-    {/* Facebook / Messenger — mismo bridge, multi-cuenta */}
-    {row("🔵", "Facebook", acctSub(logins.facebook || []),
-      linkBtn(open === "fb" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "fb" ? null : "fb")))}
-    {acctRows(logins.facebook || [])}
-    {open === "fb" ? <WaLink net="facebook" label="Facebook" onToast={onToast} onDone={closePanel}
-      instr={<>Vinculá tu cuenta de Facebook/Messenger por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código (o usá el código por número). Puede tardar ~30s.</>} /> : null}
-    {/* LinkedIn — mismo bridge, multi-cuenta */}
-    {row("🔗", "LinkedIn", acctSub(logins.linkedin || []),
-      linkBtn(open === "li" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "li" ? null : "li")))}
-    {acctRows(logins.linkedin || [])}
-    {open === "li" ? <WaLink net="linkedin" label="LinkedIn" onToast={onToast} onDone={closePanel}
-      instr={<>Vinculá tu cuenta de LinkedIn por el <b>bridge del servidor</b>: apretá <b>QR</b> y escaneá el código (o usá el código por número). Puede tardar ~30s.</>} /> : null}
-    {/* Telegram */}
-    {row("✈️", "Telegram", tgOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓ · solo lectura</span> : "Teléfono + código",
-      tgOn ? <span style={{ color: "var(--ok)", fontSize: 14 }}>✓</span> : linkBtn(open === "tg" ? "Cerrar" : "Conectar", () => setOpen(open === "tg" ? null : "tg")))}
-    {open === "tg" && !tgOn ? <TgLink configured={!!tg?.configured} onToast={onToast} onDone={closePanel} /> : null}
-    {/* Discord — vincula por token (su QR suele fallar), multi-cuenta */}
-    {row("🎮", "Discord", acctSub(logins.discord || []),
-      linkBtn(open === "discord" ? "Cerrar" : "＋ Agregar cuenta", () => setOpen(open === "discord" ? null : "discord")))}
-    {acctRows(logins.discord || [])}
-    {open === "discord" ? <DiscordLink onToast={onToast} onDone={closePanel} /> : null}
-    {/* Slack */}
-    {row("💼", "Slack", slackOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓{integ?.slack?.team ? ` · ${integ.slack.team}` : ""}</span> : "Con token de app (xoxp/xoxb)",
-      slackOn ? delBtn(disconnectSlack) : linkBtn(open === "slack" ? "Cerrar" : "Conectar", () => setOpen(open === "slack" ? null : "slack")))}
-    {open === "slack" && !slackOn ? (
-      <div className="setform">
-        <div className="modalsub" style={{ marginBottom: 10 }}>Trae tus DMs y canales a la bandeja. Creá una app en <b>api.slack.com/apps</b>, agregá scopes de lectura (<code>channels:history</code>, <code>im:history</code>, <code>users:read</code>…) e instalala; copiá el <b>User OAuth Token</b>.</div>
-        <input className="modalinput" placeholder="Pegá tu token de Slack (xoxp-… o xoxb-…)" value={slkTok} type="password" spellCheck={false} autoCapitalize="none" onChange={(e) => { setSlkTok(e.target.value); setSlkMsg(null) }} />
-        <button className="mbtn" style={{ width: "100%" }} onClick={saveSlack} disabled={slkBusy}>{slkBusy ? "Verificando…" : "Conectar Slack"}</button>
-        {slkMsg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13, color: msgColor(slkMsg) }}>{slkMsg.text}</div> : null}
-      </div>
-    ) : null}
-    {/* Signal */}
-    {row("🔒", "Signal", signalOn ? <span style={{ color: "var(--ok)" }}>Conectado ✓{integ?.signal?.number ? ` · ${integ.signal.number}` : ""}</span> : "signal-cli-rest-api en tu server",
-      signalOn ? delBtn(disconnectSignal) : linkBtn(open === "signal" ? "Cerrar" : "Conectar", () => setOpen(open === "signal" ? null : "signal")))}
-    {open === "signal" && !signalOn ? (
-      <div className="setform">
-        <div className="modalsub" style={{ marginBottom: 10 }}>Se une al <b>mismo hilo</b> que WhatsApp/SMS de cada contacto. Necesitás <b>signal-cli-rest-api</b> corriendo en tu servidor. Poné su URL y tu número.</div>
-        <input className="modalinput" placeholder="http://localhost:8080" value={sgUrl} spellCheck={false} autoCapitalize="none" onChange={(e) => { setSgUrl(e.target.value); setSgMsg(null) }} />
-        <input className="modalinput" placeholder="+51 999 000 000" value={sgNum} inputMode="tel" onChange={(e) => { setSgNum(e.target.value); setSgMsg(null) }} />
-        <button className="mbtn" style={{ width: "100%" }} onClick={saveSignal} disabled={sgBusy}>{sgBusy ? "Guardando…" : "Conectar Signal"}</button>
-        {sgMsg ? <div style={{ marginTop: 10, textAlign: "center", fontSize: 13, color: msgColor(sgMsg) }}>{sgMsg.text}</div> : null}
-      </div>
-    ) : null}
+    {/* La LISTA sale del catálogo del server (o del respaldo si falló); los flujos por canal son los de siempre. */}
+    {channels.filter((c) => c.kind === "messaging").map(renderChannel)}
     <div className="cfg-note2" style={{ marginTop: 12 }}>Otros canales se conectan desde el <b>servidor</b> de tu hub: <b>Microsoft 365</b> (Outlook/Teams entran como correo vía Graph), <b>Notion</b> y <b>Google Calendar/Drive</b> (con token/login en el servidor). Importar historial de WhatsApp está en la barra lateral, en Herramientas.</div>
   </>)
 }
