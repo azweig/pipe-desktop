@@ -225,6 +225,9 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .bubble:has(.mediaimg), .bubble:has(audio), .bubble:has(.mediavid), .bubble:has(.videocard) { padding: 5px; max-width: 300px; }
 /* nombre del remitente en grupos (encima de la burbuja entrante) */
 .bubble .bsender { font-size: 12px; font-weight: 700; margin-bottom: 2px; line-height: 1.2; }
+.bubble .bsender.clickable { cursor: pointer; }
+.bubble .bsender.clickable:hover { text-decoration: underline; }
+.ctx .pend.member:hover { background: var(--bg2); border-radius: 8px; }
 /* póster de video (no se pre-baja el archivo): click → descarga nativa + reproductor del SO */
 .videocard { width: 260px; max-width: 300px; border-radius: 10px; overflow: hidden; cursor: pointer; border: 1px solid var(--line2); background: var(--panel2); transition: border-color .12s; }
 .videocard:hover { border-color: var(--accent); }

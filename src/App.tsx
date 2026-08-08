@@ -194,7 +194,7 @@ function AiSearchCard({ res, onOpen }: { res: any; onOpen: (key: string, name?: 
     </div>
   )
 }
-function Bubble({ m, isGroup, onFeedback }: { m: Msg; isGroup?: boolean; onFeedback?: (m: Msg) => void }) {
+function Bubble({ m, isGroup, onFeedback, onOpenSender }: { m: Msg; isGroup?: boolean; onFeedback?: (m: Msg) => void; onOpenSender?: (name: string) => void }) {
   const out = m.dir === "out"
   const [reveal, setReveal] = useState(false) // modo encubierto: ver la tapadera original (lo que ve WhatsApp)
   const hasMedia = m.media && /^(image|audio|video|sticker)$/.test(m.mediaType || "")
@@ -203,8 +203,16 @@ function Bubble({ m, isGroup, onFeedback }: { m: Msg; isGroup?: boolean; onFeedb
   const caption = m.text && !PLACEHOLDER.test(m.text) ? m.text : ""
   return (
     <div className={"bubble " + (out ? "out" : "in") + (m.secret ? " secret" : "")}>
-      {/* en GRUPOS: quién mandó cada mensaje entrante (como cualquier chat grupal), con color por nombre. No en 1:1 ni en salientes. */}
-      {!out && isGroup && m.name ? <div className="bsender" style={{ color: colorOf(m.name) }}>{m.name}</div> : null}
+      {/* en GRUPOS: quién mandó cada mensaje entrante (como cualquier chat grupal), con color por nombre. No en 1:1 ni en salientes.
+          Clickeable → abre el 1:1 con esa persona (para responderle aparte del grupo). */}
+      {!out && isGroup && m.name ? (
+        <div
+          className={"bsender" + (onOpenSender ? " clickable" : "")}
+          style={{ color: colorOf(m.name) }}
+          onClick={onOpenSender ? () => onOpenSender(m.name as string) : undefined}
+          title={onOpenSender ? `Abrir chat con ${m.name}` : undefined}
+        >{m.name}</div>
+      ) : null}
       {m.covert ? (
         <>
           <Linkified text={reveal ? (m.text || "") : m.covert.text} />
@@ -476,6 +484,18 @@ export default function App() {
     const r = await suggestReply(key).catch(() => null)
     if (r?.draft) setDraft(r.draft)
   }, [openByKey])
+  // abrir el 1:1 de un MIEMBRO de un grupo por su NOMBRE (click en el remitente de una burbuja o en la lista de miembros).
+  // Los mensajes de grupo no traen la clave del remitente, así que resolvemos por nombre contra tus hilos: si ya tenés
+  // una conversación con esa persona la abrimos (y le respondés del lado derecho); si no, la buscamos en la lista.
+  const openByName = useCallback((name: string) => {
+    const nn = (name || "").trim().toLowerCase()
+    if (!nn) return
+    const t = threads.find((x) => (x.name || "").trim().toLowerCase() === nn)
+          || threads.find((x) => (x.name || "").toLowerCase().includes(nn.split(" ")[0]))
+    setPane("mensajes")
+    if (t) open(t)
+    else { setQuery(name); setToast(`No tenés un chat 1:1 con ${name} todavía — te lo busco`) }
+  }, [threads, open])
 
   // ── NOTIFICACIONES LOCALES (equivalente desktop del web-push/expo) ──
   // seguimiento del foco: no molesto con notificaciones si el usuario ya está mirando la app
@@ -946,7 +966,7 @@ export default function App() {
             {!loadingThread && !threadErr && hasMore ? <div className="loadolder" onClick={loadOlder}>{loadingMore ? "Cargando…" : "▲ Cargar mensajes anteriores"}</div> : null}
             {loadingThread ? <div className="center"><div className="spin" /></div>
               : threadErr ? <div className="center" style={{ flexDirection: "column", gap: 10 }}><span style={{ color: "var(--muted)" }}>{threadErr}</span><button className="mbtn" onClick={() => open(sel)}>Reintentar</button></div>
-              : <Messages key={sel.key} msgs={msgs} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} />}
+              : <Messages key={sel.key} msgs={msgs} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} onOpenSender={openByName} />}
             {sumCard ? <div className="aisum" style={{ margin: "10px 6px" }}>📝 {sumCard}</div> : null}
           </div>
           <div className="composer">
@@ -1002,7 +1022,7 @@ export default function App() {
             return members.length ? (<>
               <div className="cgrp">Miembros del grupo · {members.length}</div>
               {members.slice(0, 40).map((nm, i) => (
-                <div key={i} className="pend" style={{ alignItems: "center" }}>
+                <div key={i} className="pend member" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => openByName(nm)} title={`Abrir chat con ${nm}`}>
                   <span className="cav" style={{ width: 26, height: 26, fontSize: 10, background: colorOf(nm), flexShrink: 0 }}>{initials(nm)}</span>{nm}
                 </div>
               ))}
@@ -2022,7 +2042,7 @@ function SendOptions({ opts, onPick, onClose }: { opts: any; onPick: (t: string)
 
 const RENDER_CAP = 60   // PRIMER lote: pintamos solo las últimas 60 burbujas → primer render rapidísimo al cambiar de hilo (antes 200 jankeaba en hilos con media)
 const RENDER_STEP = 200 // cada "ver anteriores" suma 200: un hilo de miles (email/grupo) NO explota el DOM ni molesta con mil clicks
-function Messages({ msgs, isGroup, onFeedback }: { msgs: Msg[]; isGroup?: boolean; onFeedback?: (m: Msg) => void }) {
+function Messages({ msgs, isGroup, onFeedback, onOpenSender }: { msgs: Msg[]; isGroup?: boolean; onFeedback?: (m: Msg) => void; onOpenSender?: (name: string) => void }) {
   const [cap, setCap] = useState(RENDER_CAP)
   if (!msgs.length) return <div className="center">Sin mensajes</div>
   const overflow = msgs.length > cap
@@ -2036,7 +2056,7 @@ function Messages({ msgs, isGroup, onFeedback }: { msgs: Msg[]; isGroup?: boolea
     if (m.channel === "email") {
       out.push(<div key={m.id} className="emailcard"><div className="et">✉️ {(m.text || "").split(" — ")[0].slice(0, 60)}</div>{(m as any).summary && <div className="esum">✦ {(m as any).summary}</div>}</div>)
     } else {
-      out.push(<Bubble key={m.id} m={m} isGroup={isGroup} onFeedback={onFeedback} />)
+      out.push(<Bubble key={m.id} m={m} isGroup={isGroup} onFeedback={onFeedback} onOpenSender={onOpenSender} />)
     }
   })
   return <>{out}</>
