@@ -498,9 +498,12 @@ export default function App() {
     if (local) { open(local); return }
     setToast(`Abriendo chat con ${nm}…`)
     const p: any = await getPerson(nm).catch(() => null)
-    const key = p?.key || (p?.canon && !p?.group ? p.canon : "")
-    if (key) { openByKey(key, p?.name || nm, p?.photo); setToast("") }
-    else setToast(`${nm} solo aparece en grupos — todavía no tenés un chat 1:1 con esa persona`)
+    // pending=true → el server NO encontró un hilo REAL con esa persona: o solo aparece en grupos, o su chat está
+    // guardado bajo otra identidad sin fusionar (ej. "Mili" ≠ "Milagros Núñez"). NO abrimos un hilo vacío: avisamos.
+    // La clave de un DM de WhatsApp es el nombre canónico, así que con pending=false abrimos por p.key || p.canon.
+    const key = (p && !p.pending) ? (p.key || p.canon) : ""
+    if (key) { openByKey(key, p.name || nm, p.photo); setToast("") }
+    else setToast(`No encontré un chat 1:1 con ${nm} — puede estar guardado con otro nombre o solo aparecer en grupos`)
   }, [threads, open, openByKey])
 
   // ── NOTIFICACIONES LOCALES (equivalente desktop del web-push/expo) ──
@@ -1008,9 +1011,10 @@ export default function App() {
       {/* context — oculto hasta que hacés click en el nombre del contacto */}
       {sel && showCtx && (
         <div className="ctx">
-          <div className="cav" style={{ background: colorOf(sel.name) }}>{initials(sel.name)}</div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><Avatar name={sel.name} photo={sel.photo || (person as any)?.photo} size={66} /></div>
           <div className="cname">{sel.name}</div>
           <div className="crole">{person?.role || (sel.channels || []).map((c) => CH[c]?.label || c).join(" · ")}</div>
+          {((person as any)?.contacts?.phones || []).length > 0 ? <div className="crole" style={{ marginTop: 3 }}>📞 {(person as any).contacts.phones.map((n: string) => "+" + n).join(" · ")}</div> : null}
           <div className="cicons"><button>💬</button><button>✉️</button><button>📞</button><button>🗓</button></div>
           {person?.bio && (<><div className="cgrp">✦ Contexto</div><div className="cbox">{person.bio}</div></>)}
           {(person?.pending || []).length > 0 && (<>
@@ -1024,12 +1028,13 @@ export default function App() {
             <div className="cbox">{person.topics.slice(0, 4).join(" · ")}</div>
           </>)}
           {sel.group && (() => {
-            const members = [...new Set(msgs.filter((m) => m.dir !== "out" && m.name).map((m) => m.name as string))]
+            const members = [...new Set(msgs.filter((m) => m.dir !== "out" && m.name).map((m) => m.name as string))].sort((a, b) => a.localeCompare(b, "es"))
             return members.length ? (<>
               <div className="cgrp">Miembros del grupo · {members.length}</div>
-              {members.slice(0, 40).map((nm, i) => (
-                <div key={i} className="pend member" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => openByName(nm)} title={`Abrir chat con ${nm}`}>
-                  <span className="cav" style={{ width: 26, height: 26, fontSize: 10, background: colorOf(nm), flexShrink: 0 }}>{initials(nm)}</span>{nm}
+              {members.slice(0, 60).map((nm, i) => (
+                <div key={i} className="member" onClick={() => openByName(nm)} title={`Abrir chat con ${nm}`}>
+                  <Avatar name={nm} size={26} />
+                  <span className="mname">{nm}</span>
                 </div>
               ))}
             </>) : null
