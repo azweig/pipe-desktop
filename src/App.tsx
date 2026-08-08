@@ -485,17 +485,23 @@ export default function App() {
     if (r?.draft) setDraft(r.draft)
   }, [openByKey])
   // abrir el 1:1 de un MIEMBRO de un grupo por su NOMBRE (click en el remitente de una burbuja o en la lista de miembros).
-  // Los mensajes de grupo no traen la clave del remitente, así que resolvemos por nombre contra tus hilos: si ya tenés
-  // una conversación con esa persona la abrimos (y le respondés del lado derecho); si no, la buscamos en la lista.
-  const openByName = useCallback((name: string) => {
-    const nn = (name || "").trim().toLowerCase()
-    if (!nn) return
-    const t = threads.find((x) => (x.name || "").trim().toLowerCase() === nn)
-          || threads.find((x) => (x.name || "").toLowerCase().includes(nn.split(" ")[0]))
+  // Los mensajes de grupo no traen la clave del remitente, así que resolvemos por nombre:
+  //  1) match instantáneo contra tus hilos abiertos (barato),
+  //  2) si no, se lo pedimos al server (getPerson) que resuelve alias/canónicos sobre 600 hilos → devuelve la clave del 1:1 real,
+  //  3) si esa persona SOLO aparece en grupos (sin chat 1:1), lo decimos claro en vez de dejar una búsqueda vacía.
+  const openByName = useCallback(async (name: string) => {
+    const nm = (name || "").trim()
+    if (!nm) return
     setPane("mensajes")
-    if (t) open(t)
-    else { setQuery(name); setToast(`No tenés un chat 1:1 con ${name} todavía — te lo busco`) }
-  }, [threads, open])
+    const nn = nm.toLowerCase()
+    const local = threads.find((x) => (x.name || "").trim().toLowerCase() === nn)
+    if (local) { open(local); return }
+    setToast(`Abriendo chat con ${nm}…`)
+    const p: any = await getPerson(nm).catch(() => null)
+    const key = p?.key || (p?.canon && !p?.group ? p.canon : "")
+    if (key) { openByKey(key, p?.name || nm, p?.photo); setToast("") }
+    else setToast(`${nm} solo aparece en grupos — todavía no tenés un chat 1:1 con esa persona`)
+  }, [threads, open, openByKey])
 
   // ── NOTIFICACIONES LOCALES (equivalente desktop del web-push/expo) ──
   // seguimiento del foco: no molesto con notificaciones si el usuario ya está mirando la app
