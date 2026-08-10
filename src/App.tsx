@@ -257,6 +257,7 @@ export default function App() {
   const [meetingId, setMeetingId] = useState<string | null>(null) // detalle de reunión (modal) abierto desde agenda/calendario
   const [draft, setDraft] = useState("")
   const [targets, setTargets] = useState<any[]>([])
+  const [tgtCh, setTgtCh] = useState<string | null>(null) // canal elegido a mano (ej. "Responder" desde un email) — pisa el default
   const [threadAuto, setThreadAuto] = useState(false)         // ¿el contacto abierto tiene piloto automático?
   const [modal, setModal] = useState<any>(null)              // "apcfg" | { fb: msgId, original } | null
   const [threadErr, setThreadErr] = useState("")             // error al cargar el hilo (para no mostrar "Sin mensajes" falso)
@@ -319,6 +320,7 @@ export default function App() {
   }, [authed])
 
   const recRef = useRef<{ rec: MediaRecorder; chunks: Blob[]; t0: number; ai: boolean } | null>(null)
+  const composerRef = useRef<HTMLInputElement>(null) // para enfocar el compositor al tocar "Responder" en el visor de email
   const fileRef = useRef<HTMLInputElement>(null)
   const stickerRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false) // 🖼️ overlay al arrastrar archivos a la conversación
@@ -424,7 +426,7 @@ export default function App() {
     // reabrir el MISMO hilo hace poco → reusamos su contexto (persona/targets/agenda/encubierto) en vez de re-pedirlo
     const cx = ctxCacheRef.current.get(t.key)
     const freshCx = !!cx && Date.now() - cx.t < 60000
-    setSel(t); setShowCtx(false); setDraft(""); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
+    setSel(t); setShowCtx(false); setDraft(""); setTgtCh(null); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
     setPerson(freshCx ? cx!.person : null); setTargets(freshCx ? cx!.targets : []); setSched(freshCx ? cx!.sched : null); setThreadCovert(freshCx ? cx!.covert : null)
     // 1) LOCAL primero (IndexedDB) → los mensajes viejos aparecen al instante, sin re-descargar
     // 🔒 con 2º PIN NO uso la cache local: traigo fresco del server (que filtra las líneas ocultas cuando está bloqueado). El server es la única fuente de verdad.
@@ -567,7 +569,7 @@ export default function App() {
     return () => { stop = true; clearInterval(id) }
   }, [authed])
 
-  const target = () => targets.find((x) => x.isDefault) || targets[0]
+  const target = () => (tgtCh && targets.find((x) => x.channel === tgtCh)) || targets.find((x) => x.isDefault) || targets[0]
   const doSend = async (txt: string, covert = false) => {
     if (!txt.trim() || !sel) return
     const tg = target()
@@ -992,7 +994,7 @@ export default function App() {
             <div className="crow">
               {threadCovert ? <button className="clip tipup" data-tip={covertOn ? "Encubierto ON — tocá para desactivar" : "Enviar cifrado (El Santo)"} onClick={() => setCovertOn((v) => !v)} style={{ background: covertOn ? "var(--accent)" : undefined, color: covertOn ? "#fff" : undefined }}>🕊️</button> : null}
               <button className="clip tipup" data-tip={correctOn ? "Corrijo con IA al enviar — tocá para enviar tal cual" : "Enviar tal cual — tocá para corregir con IA"} onClick={toggleCorrect} style={{ background: correctOn ? "var(--accent)" : undefined, color: correctOn ? "#fff" : undefined }}>✨</button>
-              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSend() } }} placeholder={covertOn ? "🕊️ Mensaje encubierto…" : busy === "correct" ? "Corrigiendo…" : recording ? (recAi ? "Grabando… (dictado)" : "Grabando nota de voz…") : "Escribí un mensaje…"} disabled={recording} />
+              <input ref={composerRef} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSend() } }} placeholder={covertOn ? "🕊️ Mensaje encubierto…" : busy === "correct" ? "Corrigiendo…" : recording ? (recAi ? "Grabando… (dictado)" : "Grabando nota de voz…") : "Escribí un mensaje…"} disabled={recording} />
               <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={onFilePicked} />
               <input ref={stickerRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onStickerPicked} />
               {dragOver ? <div style={{ position: "fixed", inset: 0, zIndex: 9998, background: "rgba(18,18,28,.72)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#fff", fontSize: 21, fontWeight: 800, pointerEvents: "none", textAlign: "center" }}>📎 Soltá para adjuntar<span style={{ fontSize: 14, fontWeight: 500, opacity: .8, marginTop: 6 }}>varias fotos → collage · una → recortar</span></div> : null}
@@ -1044,7 +1046,14 @@ export default function App() {
 
       {modal === "apcfg" && sel && <AutopilotModal sel={sel} onClose={() => setModal(null)} onSaved={(on: boolean) => { setThreadAuto(on); setModal(null); refreshThreads() }} />}
       {modal && modal.fb && sel && <FeedbackModal apkey={sel.key} original={modal.original} onClose={() => setModal(null)} />}
-      {modal && modal.email && <EmailModal m={modal.email} onClose={() => setModal(null)} />}
+      {modal && modal.email && <EmailModal m={modal.email} onClose={() => setModal(null)} onReply={async (withAi: boolean) => {
+        setModal(null); setTgtCh("email") // responder ese correo → el compositor apunta al canal email
+        if (!withAi) return setTimeout(() => composerRef.current?.focus(), 60)
+        if (!sel) return
+        setToast("✨ Redactando una respuesta…")
+        const r = await suggestReply(sel.key).catch(() => null)
+        if (r?.draft) { setDraft(r.draft); setToast(""); setTimeout(() => composerRef.current?.focus(), 60) } else setToast("No pude redactar una respuesta ahora.")
+      }} />}
       {sendOpts && <SendOptions opts={sendOpts} onPick={(t: string) => { setSendOpts(null); doSend(t) }} onClose={() => { setDraft(sendOpts.original || ""); setSendOpts(null) }} />}
       {modal === "covert" && sel && <CovertModal sel={sel} onClose={() => setModal(null)} onSaved={(style: string | null) => { setThreadCovert(style); if (!style) setCovertOn(false); setModal(null) }} />}
       {modal === "waimport" && <WhatsAppImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); refreshThreads() }} />}
@@ -2053,7 +2062,7 @@ function SendOptions({ opts, onPick, onClose }: { opts: any; onPick: (t: string)
 }
 
 // adjuntos de un email: vienen como JSON string en el mensaje → [{name,mime,size,cas}]
-type Att = { name?: string; mime?: string; size?: number; cas?: string }
+type Att = { name?: string; mime?: string; size?: number; cas?: string; inline?: boolean; cid?: string }
 const parseAtts = (m: Msg): Att[] => { try { return JSON.parse(m.attachments || "[]") || [] } catch { return [] } }
 const attSize = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB")
 
@@ -2076,9 +2085,10 @@ function EmailCard({ m, onOpen }: { m: Msg; onOpen: () => void }) {
 
 // visor del email: iframe SANDBOXEADO (sin scripts) + CSP que bloquea TODO recurso remoto → sin pixeles de tracking
 // ni read-receipts (el remitente no se entera de que lo abriste, ni ve tu IP). Las imágenes inline (data:) sí se ven. Igual que web.
-function EmailModal({ m, onClose }: { m: Msg; onClose: () => void }) {
+function EmailModal({ m, onClose, onReply }: { m: Msg; onClose: () => void; onReply?: (withAi: boolean) => void }) {
   const [body, setBody] = useState<string | null>(null)
   const [loading, setLoading] = useState(!!m.hasBody)
+  const [remoteOk, setRemoteOk] = useState(false) // imágenes remotas: bloqueadas hasta que VOS lo pidas (anti-tracking)
   useEffect(() => {
     if (!m.hasBody) return
     let alive = true
@@ -2086,10 +2096,11 @@ function EmailModal({ m, onClose }: { m: Msg; onClose: () => void }) {
     return () => { alive = false }
   }, [m.id, m.hasBody])
   const mtg = m.channel === "meeting" || m.meeting
-  const atts = parseAtts(m)
+  const atts = parseAtts(m).filter((a) => !a.inline) // las inline (cid:) ya se ven DENTRO del correo → no son archivos a listar
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
   const raw = body || `<pre style="white-space:pre-wrap;font-family:system-ui;font-size:14px">${esc(m.full || m.text || "")}</pre>`
-  const doc = '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'; font-src data:">'
+  const hasRemote = /<img[^>]+src=["']https?:/i.test(raw)
+  const doc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:${remoteOk ? " https:" : ""}; style-src 'unsafe-inline'; font-src data:">`
     + '<meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank">'
     + '<style>body{margin:0;padding:12px;font-family:system-ui;color:#111;line-height:1.5;word-break:break-word}img{max-width:100%!important;height:auto}table{max-width:100%!important}</style>' + raw
   return (
@@ -2101,6 +2112,18 @@ function EmailModal({ m, onClose }: { m: Msg; onClose: () => void }) {
         </div>
         <button className="mbtn ghost" style={{ flex: "0 0 auto", padding: "6px 12px" }} onClick={onClose}>✕</button>
       </div>
+      {!mtg && onReply ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="mbtn" onClick={() => onReply(false)}>✍️ Responder</button>
+          <button className="mbtn ghost" onClick={() => onReply(true)}>✨ Responder con IA</button>
+        </div>
+      ) : null}
+      {hasRemote && !remoteOk ? (
+        <div className="sendopt" style={{ marginTop: 12, cursor: "pointer" }} onClick={() => setRemoteOk(true)}>
+          <div className="sot">🖼 Mostrar imágenes remotas</div>
+          <div className="sok">Bloqueadas para que el remitente no sepa que abriste el correo</div>
+        </div>
+      ) : null}
       {atts.length ? (
         <div style={{ margin: "12px 0 4px" }}>
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📎 {atts.length} adjunto{atts.length > 1 ? "s" : ""}</div>
