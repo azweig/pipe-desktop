@@ -72,6 +72,8 @@ export const markSeen = (key: string, ts: number) => j("/api/thread/seen", { met
 export const getThreadBefore = (key: string, before: number) => j("/api/thread?key=" + encodeURIComponent(key) + "&limit=60&before=" + (before || 0))
 // SYNC de texto completo (backfill grande, liviano): página de 800 hacia atrás → {items, oldestTs, hasMore}
 export const getThreadSync = (key: string, before = 0) => j("/api/thread/sync?key=" + encodeURIComponent(key) + "&before=" + (before || 0) + "&limit=800")
+// CUERPO COMPLETO de un email/transcripción (HTML crudo) → { body } · se renderiza en un iframe sandboxeado
+export const getEmailBody = (id: string): Promise<{ body?: string }> => j("/api/email/body?id=" + encodeURIComponent(id))
 export const getPerson = (name: string) => j("/api/person?name=" + encodeURIComponent(name))
 // DIRECTORIO COMPLETO de contactos (nodos del vault, no solo los hilos recientes) → { people:[{name,role,tags,initials}], companies:[{name,relation,tags}] }
 export const getDirectory = (): Promise<{ people?: any[]; companies?: any[] }> => j("/api/directory")
@@ -299,4 +301,4 @@ export type Thread = {
   channels?: string[]; bucket?: string; photo?: string; initials?: string; email?: string; lastDir?: string; autopilot?: boolean
   group?: boolean; pinned?: boolean; silenced?: boolean; escalated?: boolean; escalatedReason?: string
 }
-export type Msg = { id: string; dir: string; name?: string; text?: string; ts?: number; channel?: string; media?: string | null; mediaType?: string | null; auto?: boolean; summary?: string; covert?: { text: string; style?: string }; secret?: boolean }
+export type Msg = { id: string; dir: string; name?: string; text?: string; ts?: number; channel?: string; media?: string | null; mediaType?: string | null; auto?: boolean; summary?: string; covert?: { text: string; style?: string }; secret?: boolean; hasBody?: boolean; full?: string; attachments?: string; meeting?: boolean }

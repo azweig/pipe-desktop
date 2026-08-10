@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -975,7 +975,7 @@ export default function App() {
             {!loadingThread && !threadErr && hasMore ? <div className="loadolder" onClick={loadOlder}>{loadingMore ? "Cargando…" : "▲ Cargar mensajes anteriores"}</div> : null}
             {loadingThread ? <div className="center"><div className="spin" /></div>
               : threadErr ? <div className="center" style={{ flexDirection: "column", gap: 10 }}><span style={{ color: "var(--muted)" }}>{threadErr}</span><button className="mbtn" onClick={() => open(sel)}>Reintentar</button></div>
-              : <Messages key={sel.key} msgs={msgs} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} onOpenSender={openByName} />}
+              : <Messages key={sel.key} msgs={msgs} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} onOpenSender={openByName} onOpenEmail={(m) => setModal({ email: m })} />}
             {sumCard ? <div className="aisum" style={{ margin: "10px 6px" }}>📝 {sumCard}</div> : null}
           </div>
           <div className="composer">
@@ -1044,6 +1044,7 @@ export default function App() {
 
       {modal === "apcfg" && sel && <AutopilotModal sel={sel} onClose={() => setModal(null)} onSaved={(on: boolean) => { setThreadAuto(on); setModal(null); refreshThreads() }} />}
       {modal && modal.fb && sel && <FeedbackModal apkey={sel.key} original={modal.original} onClose={() => setModal(null)} />}
+      {modal && modal.email && <EmailModal m={modal.email} onClose={() => setModal(null)} />}
       {sendOpts && <SendOptions opts={sendOpts} onPick={(t: string) => { setSendOpts(null); doSend(t) }} onClose={() => { setDraft(sendOpts.original || ""); setSendOpts(null) }} />}
       {modal === "covert" && sel && <CovertModal sel={sel} onClose={() => setModal(null)} onSaved={(style: string | null) => { setThreadCovert(style); if (!style) setCovertOn(false); setModal(null) }} />}
       {modal === "waimport" && <WhatsAppImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); refreshThreads() }} />}
@@ -2051,9 +2052,76 @@ function SendOptions({ opts, onPick, onClose }: { opts: any; onPick: (t: string)
   )
 }
 
+// adjuntos de un email: vienen como JSON string en el mensaje → [{name,mime,size,cas}]
+type Att = { name?: string; mime?: string; size?: number; cas?: string }
+const parseAtts = (m: Msg): Att[] => { try { return JSON.parse(m.attachments || "[]") || [] } catch { return [] } }
+const attSize = (n: number) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB")
+
+// ✉️ TARJETA DE EMAIL (o 🎙 transcripción de reunión) — CLICKEABLE: abre el cuerpo completo, igual que en web y mobile
+function EmailCard({ m, onOpen }: { m: Msg; onOpen: () => void }) {
+  const mtg = m.channel === "meeting" || m.meeting
+  const subject = (m.text || "").split(" — ")[0] || "(sin asunto)"
+  const preview = (m.text || "").slice(subject.length + 3).trim()
+  const atts = parseAtts(m)
+  return (
+    <div className="emailcard clk" onClick={onOpen} title={mtg ? "Abrir la transcripción completa" : "Abrir el email completo"}>
+      <div className="et">{mtg ? "🎙" : "✉️"} {subject.replace(/^📅\s*/, "").slice(0, 90)}</div>
+      {m.summary ? <div className="esum">✦ {m.summary}</div>
+        : preview ? <div className="eprev">{preview.slice(0, 220)}</div>
+        : m.hasBody ? <div className="eprev">📄 Contenido en imágenes/HTML — abrilo para verlo</div> : null}
+      <div className="eopen">{atts.length ? `📎 ${atts.length} adjunto${atts.length > 1 ? "s" : ""} · ` : ""}{mtg ? "Ver transcripción completa →" : m.hasBody ? "📖 Abrir email completo →" : "Ver email completo →"}</div>
+    </div>
+  )
+}
+
+// visor del email: iframe SANDBOXEADO (sin scripts) + CSP que bloquea TODO recurso remoto → sin pixeles de tracking
+// ni read-receipts (el remitente no se entera de que lo abriste, ni ve tu IP). Las imágenes inline (data:) sí se ven. Igual que web.
+function EmailModal({ m, onClose }: { m: Msg; onClose: () => void }) {
+  const [body, setBody] = useState<string | null>(null)
+  const [loading, setLoading] = useState(!!m.hasBody)
+  useEffect(() => {
+    if (!m.hasBody) return
+    let alive = true
+    getEmailBody(m.id).then((r) => { if (alive) setBody(r?.body || null) }).catch(() => {}).finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [m.id, m.hasBody])
+  const mtg = m.channel === "meeting" || m.meeting
+  const atts = parseAtts(m)
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+  const raw = body || `<pre style="white-space:pre-wrap;font-family:system-ui;font-size:14px">${esc(m.full || m.text || "")}</pre>`
+  const doc = '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'; font-src data:">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank">'
+    + '<style>body{margin:0;padding:12px;font-family:system-ui;color:#111;line-height:1.5;word-break:break-word}img{max-width:100%!important;height:auto}table{max-width:100%!important}</style>' + raw
+  return (
+    <div className="modalbg" onClick={onClose}><div className="modalcard wide" onClick={(e) => e.stopPropagation()}>
+      <div className="spread" style={{ alignItems: "flex-start", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{ marginBottom: 2 }}>{mtg ? "🎙 Reunión" : "📧 Email"}</h3>
+          <div className="modalsub" style={{ marginBottom: 0 }}>{(m.text || "").split(" — ")[0].replace(/^📅\s*/, "")}{m.name ? " · " + m.name : ""}</div>
+        </div>
+        <button className="mbtn ghost" style={{ flex: "0 0 auto", padding: "6px 12px" }} onClick={onClose}>✕</button>
+      </div>
+      {atts.length ? (
+        <div style={{ margin: "12px 0 4px" }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📎 {atts.length} adjunto{atts.length > 1 ? "s" : ""}</div>
+          {atts.map((a, i) => (
+            <div key={i} className="sendopt" style={{ cursor: "pointer" }} onClick={() => a.cas && hubOpenFile(a.cas, a.name || "").catch(() => {})}>
+              <div className="sot">📄 {a.name || "archivo"}</div>
+              <div className="sok">{(a.mime || "").split("/").pop() || "archivo"} · {attSize(a.size || 0)} · abrir ↓</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {loading
+        ? <div className="center" style={{ height: 200 }}><div className="spin" /></div>
+        : <iframe title="email" sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={doc} style={{ width: "100%", height: "62vh", border: "1px solid var(--line2)", borderRadius: 10, background: "#fff", marginTop: 12 }} />}
+    </div></div>
+  )
+}
+
 const RENDER_CAP = 60   // PRIMER lote: pintamos solo las últimas 60 burbujas → primer render rapidísimo al cambiar de hilo (antes 200 jankeaba en hilos con media)
 const RENDER_STEP = 200 // cada "ver anteriores" suma 200: un hilo de miles (email/grupo) NO explota el DOM ni molesta con mil clicks
-function Messages({ msgs, isGroup, onFeedback, onOpenSender }: { msgs: Msg[]; isGroup?: boolean; onFeedback?: (m: Msg) => void; onOpenSender?: (name: string) => void }) {
+function Messages({ msgs, isGroup, onFeedback, onOpenSender, onOpenEmail }: { msgs: Msg[]; isGroup?: boolean; onFeedback?: (m: Msg) => void; onOpenSender?: (name: string) => void; onOpenEmail?: (m: Msg) => void }) {
   const [cap, setCap] = useState(RENDER_CAP)
   if (!msgs.length) return <div className="center">Sin mensajes</div>
   const overflow = msgs.length > cap
@@ -2064,8 +2132,8 @@ function Messages({ msgs, isGroup, onFeedback, onOpenSender }: { msgs: Msg[]; is
   shown.forEach((m, i) => {
     if (m.channel === "ai-summary") { out.push(<div key={m.id} className="aisum">✦ {m.text}</div>); lastCh = ""; return } // resumen IA como tarjeta, no como burbuja rota
     if (m.channel && m.channel !== lastCh) { lastCh = m.channel; const ci = CH[m.channel]; out.push(<div key={"c" + i} className="chanlabel"><span style={{ width: 7, height: 7, borderRadius: 9, background: ci?.c || "#ccc", display: "inline-block" }} />{ci?.label || m.channel}</div>) }
-    if (m.channel === "email") {
-      out.push(<div key={m.id} className="emailcard"><div className="et">✉️ {(m.text || "").split(" — ")[0].slice(0, 60)}</div>{(m as any).summary && <div className="esum">✦ {(m as any).summary}</div>}</div>)
+    if (m.channel === "email" || m.channel === "meeting") {
+      out.push(<EmailCard key={m.id} m={m} onOpen={() => onOpenEmail?.(m)} />)
     } else {
       out.push(<Bubble key={m.id} m={m} isGroup={isGroup} onFeedback={onFeedback} onOpenSender={onOpenSender} />)
     }

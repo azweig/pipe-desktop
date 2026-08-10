@@ -103,6 +103,10 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .emailcard { background: var(--bg); border: 1px solid var(--line2); border-radius: 12px; padding: 13px 15px; max-width: 78%; align-self: flex-start; box-shadow: var(--shadow); margin-bottom: 4px; }
 .emailcard .et { font-weight: 600; display: flex; align-items: center; gap: 7px; }
 .emailcard .esum { background: var(--accent-soft); border-radius: 9px; padding: 9px 11px; margin: 9px 0; font-size: 12.5px; color: var(--accent-ink); }
+.emailcard .eprev { font-size: 12.5px; color: var(--muted); margin: 7px 0 0; max-height: 58px; overflow: hidden; line-height: 1.45; }
+.emailcard .eopen { font-size: 12.5px; color: var(--accent); margin-top: 9px; font-weight: 600; }
+.emailcard.clk { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.emailcard.clk:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(20,22,40,.12); }
 .aidraft { background: linear-gradient(135deg, #f3f0ff, #eef0fe); border: 1px solid #ddd9fb; border-radius: 12px; padding: 12px 14px; max-width: 70%; align-self: flex-end; }
 .aidraft .adh { font-size: 11px; font-weight: 700; color: var(--accent-ink); display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
 .composer { background: var(--bg); border-top: 1px solid var(--line); padding: 12px 16px; }
@@ -276,6 +280,7 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .autobadge:hover { opacity: 1; text-decoration: underline; }
 .modalbg { position: fixed; inset: 0; background: rgba(20,22,40,.28); backdrop-filter: blur(2px); display: grid; place-items: center; z-index: 100; }
 .modalcard { background: var(--bg); border-radius: 16px; padding: 24px; width: 380px; max-width: 90vw; box-shadow: 0 20px 60px rgba(20,22,40,.25); }
+.modalcard.wide { width: 760px; max-width: 92vw; max-height: 88vh; overflow: auto; }
 .modalcard h3 { font-size: 17px; margin-bottom: 6px; }
 .modalsub { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
 .modallabel { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
