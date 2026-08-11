@@ -800,9 +800,6 @@ export default function App() {
     }
   }, [])
 
-  if (authed === null) return <div className="center"><div className="spin" /></div>
-  if (!authed) return <Login onOk={() => setAuthed(true)} />
-
   // La bandeja carga los N hilos más recientes. Con miles de conversaciones, buscar SOLO en lo cargado deja
   // afuera a cualquiera con quien no hablaste esta semana — parecía que el contacto no existía. Le preguntamos al
   // server, que busca sobre TODOS los hilos por índice (clave + nombre por FTS).
@@ -813,6 +810,9 @@ export default function App() {
     const id = setTimeout(() => { searchThreads(nqq).then((r) => { if (alive) setRemoteHits(Array.isArray(r) ? r : []) }).catch(() => {}) }, 220)
     return () => { alive = false; clearTimeout(id) }
   }, [query])
+
+  if (authed === null) return <div className="center"><div className="spin" /></div>
+  if (!authed) return <Login onOk={() => setAuthed(true)} />
 
   // categoría del hilo — MISMA semántica que web/mobile (bucketCat): family→familia, amigos→amigos, resto→trabajo; spam/grupo fuera
   const isWork = (t: Thread) => !t.group && t.bucket !== "spam" && t.bucket !== "family" && t.bucket !== "amigos"
