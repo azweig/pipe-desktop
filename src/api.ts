@@ -76,6 +76,9 @@ export const getThreadBefore = (key: string, before: number) => j("/api/thread?k
 export const getThreadSync = (key: string, before = 0) => j("/api/thread/sync?key=" + encodeURIComponent(key) + "&before=" + (before || 0) + "&limit=800")
 // CUERPO COMPLETO de un email/transcripción (HTML crudo) → { body } · se renderiza en un iframe sandboxeado
 export const getEmailBody = (id: string): Promise<{ body?: string }> => j("/api/email/body?id=" + encodeURIComponent(id))
+// ✍️ firmas de correo, por cuenta ("*" = la de por defecto)
+export const getSignatures = (): Promise<{ signatures?: Record<string, { text?: string }>; fallback?: { text?: string } }> => j("/api/signatures")
+export const saveSignature = (account: string, text: string) => j("/api/signature", { method: "POST", body: JSON.stringify({ account, text }) })
 export const getPerson = (name: string) => j("/api/person?name=" + encodeURIComponent(name))
 // DIRECTORIO COMPLETO de contactos (nodos del vault, no solo los hilos recientes) → { people:[{name,role,tags,initials}], companies:[{name,relation,tags}] }
 export const getDirectory = (): Promise<{ people?: any[]; companies?: any[] }> => j("/api/directory")

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
-import { authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -753,6 +753,7 @@ export default function App() {
     if (secretIdleRef.current) { clearTimeout(secretIdleRef.current); secretIdleRef.current = null }
     secretLock().catch(() => {})     // cierra la sesión en el server
     cachePurge().catch(() => {})     // borra cualquier rastro cacheado
+    setRemoteHits([])                // 🔒 lo que trajo el buscador estando DESBLOQUEADO puede incluir hilos secretos
     refreshThreads()                 // la bandeja se re-pide (el server ya no incluye lo oculto)
     const s = selRef.current; if (s) open(s) // re-pinta el hilo abierto (fresco del server, sin lo oculto) — no te expulsa
   }
@@ -809,7 +810,7 @@ export default function App() {
     let alive = true
     const id = setTimeout(() => { searchThreads(nqq).then((r) => { if (alive) setRemoteHits(Array.isArray(r) ? r : []) }).catch(() => {}) }, 220)
     return () => { alive = false; clearTimeout(id) }
-  }, [query])
+  }, [query, secretUnlocked]) // secretUnlocked: al des/bloquear se rehace la búsqueda con el permiso vigente
 
   if (authed === null) return <div className="center"><div className="spin" /></div>
   if (!authed) return <Login onOk={() => setAuthed(true)} />
@@ -1860,6 +1861,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
               {e.kind === "imap" ? <button onClick={() => setConfirm({ title: <>¿Eliminar la cuenta {e.user}?</>, body: "Vas a dejar de recibir sus mensajes.", onYes: () => removeEmail(e.label) })} style={{ color: "var(--danger)", fontSize: 15, flex: "0 0 auto" }} data-tip="Quitar">✕</button> : null}
             </div>
           )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Todavía no conectaste ninguna bandeja.</div>}
+          <SignatureEditor accounts={accts.email || []} />
           {showEmail ? (
             <div className="setform">
               <div className="modalsub" style={{ marginBottom: 10 }}>Gmail/Outlook: usá una <b>contraseña de aplicación</b> (16 letras), no la de tu cuenta.</div>
@@ -2870,6 +2872,46 @@ function Jarvis({ onHome }: { onHome: () => void }) {
 }
 
 // ── ESPACIOS: crear/editar agrupaciones por reglas (email/dominio/teléfono/nombre) + excepciones + subespacios. /api/espacios · /api/espacio* ──
+// ✍️ FIRMA de correo, por cuenta ("*" = la que se usa si esa cuenta no tiene la suya). Un email se responde con
+// firma; un WhatsApp no. Sin configurar nada, sale una mínima armada con tu nombre y empresa.
+function SignatureEditor({ accounts }: { accounts: any[] }) {
+  const [data, setData] = useState<any>(null)
+  const [acct, setAcct] = useState("*")
+  const [text, setText] = useState("")
+  const [saved, setSaved] = useState("")
+  useEffect(() => { getSignatures().then((r) => setData(r || {})).catch(() => setData({})) }, [])
+  useEffect(() => {
+    if (!data) return
+    const sigs = data.signatures || {}
+    const cur = sigs[acct.toLowerCase()] || sigs[acct]
+    setText(cur ? cur.text || "" : acct === "*" ? (data.fallback?.text || "") : "")
+  }, [data, acct])
+  if (!data) return null
+  const sigs = data.signatures || {}
+  const own = !!(sigs[acct.toLowerCase()] || sigs[acct])
+  const save = async (t: string) => {
+    const r: any = await saveSignature(acct, t).catch(() => null)
+    if (r) { setData({ ...data, signatures: r.signatures || {} }); setSaved(t ? "✍️ guardada" : "quitada"); setTimeout(() => setSaved(""), 2500) }
+  }
+  return (
+    <>
+      <label className="modallabel" style={{ marginTop: 16 }}>Firma del correo {saved ? <span style={{ color: "var(--ok)" }}>· {saved}</span> : null}</label>
+      <select className="modalinput" value={acct} onChange={(e) => setAcct(e.target.value)} style={{ marginBottom: 8 }}>
+        <option value="*">Todas las cuentas</option>
+        {(accounts || []).map((e: any) => <option key={e.label} value={e.label || e.user}>{e.name || e.user}{sigs[String(e.label || e.user).toLowerCase()] ? " ✓" : ""}</option>)}
+      </select>
+      <textarea className="modalinput" rows={5} value={text} onChange={(e) => setText(e.target.value)} placeholder={"--\nTu nombre\nTu empresa"} style={{ resize: "vertical", fontFamily: "inherit" }} />
+      <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "-6px 0 10px" }}>
+        {own ? "Personalizada para esta cuenta." : acct === "*" ? "Es la de por defecto (tu nombre y empresa). Editala para fijarla." : "Sin firma propia: usa la de “Todas las cuentas”."}
+      </div>
+      <div className="modalrow">
+        <button className="mbtn" onClick={() => save(text)}>Guardar firma</button>
+        {own ? <button className="mbtn ghost" onClick={() => save("")}>Quitar</button> : null}
+      </div>
+    </>
+  )
+}
+
 const RULE_ICON: Record<string, string> = { email: "✉️", domain: "🌐", phone: "📱", name: "👤" }
 const RULE_TYPES: [string, string][] = [["email", "Correo"], ["domain", "Dominio"], ["phone", "Teléfono"], ["name", "Nombre"]]
 const RULE_PH: Record<string, string> = { email: "profesor@colegio.edu.pe", domain: "colegio.edu.pe", phone: "51999888777", name: "Nombre exacto del contacto" }
