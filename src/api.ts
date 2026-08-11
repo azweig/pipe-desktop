@@ -79,6 +79,10 @@ export const getEmailBody = (id: string): Promise<{ body?: string }> => j("/api/
 // ✍️ firmas de correo, por cuenta ("*" = la de por defecto)
 export const getSignatures = (): Promise<{ signatures?: Record<string, { text?: string }>; fallback?: { text?: string } }> => j("/api/signatures")
 export const saveSignature = (account: string, text: string) => j("/api/signature", { method: "POST", body: JSON.stringify({ account, text }) })
+// 🤖 asistente en TU propio chat (distinto del piloto: te habla A VOS, no se hace pasar por vos)
+export const getAssistant = (): Promise<{ enabled?: boolean; web?: boolean; maxPerDay?: number; state?: any }> => j("/api/assistant")
+export const setAssistant = (b: { enabled?: boolean; web?: boolean; maxPerDay?: number }) => j("/api/assistant", { method: "POST", body: JSON.stringify(b) })
+export const tryAssistant = (q: string): Promise<{ text?: string; usedWeb?: boolean; ownMatches?: number }> => j("/api/assistant/try", { method: "POST", body: JSON.stringify({ q }) })
 export const getPerson = (name: string) => j("/api/person?name=" + encodeURIComponent(name))
 // DIRECTORIO COMPLETO de contactos (nodos del vault, no solo los hilos recientes) → { people:[{name,role,tags,initials}], companies:[{name,relation,tags}] }
 export const getDirectory = (): Promise<{ people?: any[]; companies?: any[] }> => j("/api/directory")

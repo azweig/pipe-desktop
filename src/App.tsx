@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
-import { authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -1862,6 +1862,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
             </div>
           )) : <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "6px 2px 10px" }}>Todavía no conectaste ninguna bandeja.</div>}
           <SignatureEditor accounts={accts.email || []} />
+          <AssistantCard />
           {showEmail ? (
             <div className="setform">
               <div className="modalsub" style={{ marginBottom: 10 }}>Gmail/Outlook: usá una <b>contraseña de aplicación</b> (16 letras), no la de tu cuenta.</div>
@@ -2908,6 +2909,43 @@ function SignatureEditor({ accounts }: { accounts: any[] }) {
         <button className="mbtn" onClick={() => save(text)}>Guardar firma</button>
         {own ? <button className="mbtn ghost" onClick={() => save("")}>Quitar</button> : null}
       </div>
+    </>
+  )
+}
+
+// 🤖 ASISTENTE EN TU PROPIO CHAT. Distinto del piloto: el piloto se hace pasar por vos con OTROS; esto te
+// responde A VOS cuando le preguntás algo en tu propio WhatsApp. Tus notas y links no se tocan.
+function AssistantCard() {
+  const [a, setA] = useState<any>(null)
+  const [q, setQ] = useState("")
+  const [out, setOut] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { getAssistant().then((r) => setA(r || {})).catch(() => setA({})) }, [])
+  if (!a) return null
+  const upd = async (b: any) => { await setAssistant(b).catch(() => {}); setA(await getAssistant().catch(() => a)) }
+  const probar = async () => {
+    if (!q.trim()) return
+    setBusy(true); setOut(null)
+    const r = await tryAssistant(q).catch(() => null)
+    setBusy(false); setOut(r)
+  }
+  return (
+    <>
+      <label className="modallabel" style={{ marginTop: 18 }}>🤖 Asistente en tu propio chat</label>
+      <div className="modalsub" style={{ marginBottom: 10 }}>Le escribís a tu WhatsApp de siempre y, si es una <b>pregunta</b>, te responde — busca en internet y en tu historial. Tus notas y links los deja pasar. Para forzarlo, empezá con <b>“pipe”</b>.</div>
+      <div className="setrow"><span style={{ fontSize: 17 }}>💬</span>
+        <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>Responderme cuando pregunte</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted2)" }}>Hoy respondió {a.state?.usedToday || 0} de {a.maxPerDay || 30}</div></div>
+        <button className={"mbtn" + (a.enabled ? "" : " ghost")} style={{ flex: "0 0 auto", padding: "5px 12px" }} onClick={() => upd({ enabled: !a.enabled })}>{a.enabled ? "ON" : "OFF"}</button></div>
+      <div className="setrow"><span style={{ fontSize: 17 }}>🌐</span>
+        <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>Puede buscar en internet</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted2)" }}>Precios, horarios, datos que no están en tu historial</div></div>
+        <button className={"mbtn" + (a.web ? "" : " ghost")} style={{ flex: "0 0 auto", padding: "5px 12px" }} onClick={() => upd({ web: !a.web })}>{a.web ? "ON" : "OFF"}</button></div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <input className="modalinput" style={{ flex: 1, marginBottom: 0 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Probalo: ¿a cuánto está el dólar?" onKeyDown={(e) => { if (e.key === "Enter") probar() }} />
+        <button className="mbtn" style={{ flex: "0 0 auto" }} onClick={probar} disabled={busy}>{busy ? "…" : "Probar"}</button>
+      </div>
+      {out ? <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.5 }}>{out.text || "No pude responder."}{out.text ? <div style={{ fontSize: 11, marginTop: 4 }}>{out.usedWeb ? "🌐 usó internet" : "solo tu historial"} · {out.ownMatches} fragmentos tuyos</div> : null}</div> : null}
     </>
   )
 }
