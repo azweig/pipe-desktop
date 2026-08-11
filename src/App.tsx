@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
-import { authStatus, login, setBase, getBase, getThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -275,6 +275,7 @@ export default function App() {
   const [oldestTs, setOldestTs] = useState(0)                // ts del más viejo que tengo (para paginar hacia atrás)
   const [loadingMore, setLoadingMore] = useState(false)
   const [query, setQuery] = useState("")                     // buscador de la bandeja (identidad: nombre/teléfono/email)
+  const [remoteHits, setRemoteHits] = useState<Thread[]>([]) // resultados del SERVER: contactos fuera de la ventana cargada
   const [msgHits, setMsgHits] = useState<any[]>([])          // resultados del buscador CONTEXTUAL (dentro de los mensajes)
   const [aiRes, setAiRes] = useState<any>(null)              // 🤖 resultado del buscador con IA (router-search: ⚡ facetas / 🧠 RAG)
   const [syncMsg, setSyncMsg] = useState("")                 // indicador del sync de texto completo ("Guardando historial…")
@@ -802,14 +803,28 @@ export default function App() {
   if (authed === null) return <div className="center"><div className="spin" /></div>
   if (!authed) return <Login onOk={() => setAuthed(true)} />
 
+  // La bandeja carga los N hilos más recientes. Con miles de conversaciones, buscar SOLO en lo cargado deja
+  // afuera a cualquiera con quien no hablaste esta semana — parecía que el contacto no existía. Le preguntamos al
+  // server, que busca sobre TODOS los hilos por índice (clave + nombre por FTS).
+  useEffect(() => {
+    const nqq = query.trim()
+    if (nqq.length < 2) { setRemoteHits([]); return }
+    let alive = true
+    const id = setTimeout(() => { searchThreads(nqq).then((r) => { if (alive) setRemoteHits(Array.isArray(r) ? r : []) }).catch(() => {}) }, 220)
+    return () => { alive = false; clearTimeout(id) }
+  }, [query])
+
   // categoría del hilo — MISMA semántica que web/mobile (bucketCat): family→familia, amigos→amigos, resto→trabajo; spam/grupo fuera
   const isWork = (t: Thread) => !t.group && t.bucket !== "spam" && t.bucket !== "family" && t.bucket !== "amigos"
   const inCat = (t: Thread, id: string) => id === "familia" ? t.bucket === "family" : id === "amigos" ? t.bucket === "amigos" : id === "trabajo" ? isWork(t) : id === "silenciados" ? !!t.silenced : true
   const nq = query.trim().toLowerCase(), ndig = nq.replace(/\D/g, "")
   const matchQ = (t: Thread) => { const hay = `${t.name || ""} ${t.key || ""} ${t.email || ""} ${t.lastText || ""}`.toLowerCase(); return hay.includes(nq) || (ndig.length >= 3 && hay.replace(/\D/g, "").includes(ndig)) }
-  const list = threads.filter((t) => t.key !== "self" && !((t as any).espacio) && t.bucket !== "spam")
+  const remoteKeys = new Set(remoteHits.map((r) => r.key))
+  const pool = nq ? [...threads, ...remoteHits.filter((r) => !threads.some((t) => t.key === r.key))] : threads
+  const list = pool.filter((t) => t.key !== "self" && !((t as any).espacio) && t.bucket !== "spam")
     // con búsqueda: ignora tab/categoría (busca en TODO); sin búsqueda: respeta tab
-    .filter((t) => nq ? matchQ(t) : nav === "sin" ? (t.lastDir !== "out" && (t.unseen || t.unread)) : nav === "grupos" ? t.group : nav === "prioritarios" ? t.pinned
+    // lo que vino del server ya matcheó allá (por clave o por nombre del remitente): no lo re-filtramos acá
+    .filter((t) => nq ? (remoteKeys.has(t.key) || matchQ(t)) : nav === "sin" ? (t.lastDir !== "out" && (t.unseen || t.unread)) : nav === "grupos" ? t.group : nav === "prioritarios" ? t.pinned
       : CATS.some((c) => c.id === nav) ? inCat(t, nav) : true)
     .filter((t) => { const ch = t.channels || []; return !nq && ch.length ? ch.some((c) => !chOff.has(c)) : true }) // filtro por canal (no aplica en búsqueda)
     .sort((a, b) => (b.escalated ? 1 : 0) - (a.escalated ? 1 : 0)) // el piloto escaló → arriba de todo

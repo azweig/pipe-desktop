@@ -63,7 +63,9 @@ export async function login(pin: string) {
   if (r && r.ok && r.sid) { SID = r.sid; localStorage.setItem("sid", r.sid) }
   return r
 }
-export const getThreads = () => j("/api/threads?limit=200")
+export const getThreads = () => j("/api/threads?limit=600") // 600 como la web: con 200 los contactos de hace dos semanas quedaban fuera de la bandeja
+// BUSCAR entre TODOS los hilos (no solo los cargados). El server resuelve por índice; devuelve filas iguales a las de la bandeja.
+export const searchThreads = (q: string): Promise<Thread[]> => j("/api/threads?limit=60&q=" + encodeURIComponent(q))
 export const getThread = (key: string) => j("/api/thread?key=" + encodeURIComponent(key) + "&limit=60")
 export const getThreadDelta = (key: string, sinceRev = 0) => j("/api/thread/delta?key=" + encodeURIComponent(key) + "&sinceRev=" + (sinceRev || 0))
 // marca el hilo como LEÍDO (paridad con web/mobile, que lo llaman al abrir) → limpia el punto de "no leído" en el server
