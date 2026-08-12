@@ -502,7 +502,7 @@ export default function App() {
     setToast(`Abriendo chat con ${nm}…`)
     const p: any = await getPerson(nm).catch(() => null)
     // pending=true → el server NO encontró un hilo REAL con esa persona: o solo aparece en grupos, o su chat está
-    // guardado bajo otra identidad sin fusionar (ej. "Mili" ≠ "Milagros Núñez"). NO abrimos un hilo vacío: avisamos.
+    // guardado bajo otra identidad sin fusionar (ej. un apodo ≠ el nombre completo). NO abrimos un hilo vacío: avisamos.
     // La clave de un DM de WhatsApp es el nombre canónico, así que con pending=false abrimos por p.key || p.canon.
     const key = (p && !p.pending) ? (p.key || p.canon) : ""
     if (key) { openByKey(key, p.name || nm, p.photo); setToast("") }
