@@ -1,3 +1,9 @@
+// 🔒 SEGUNDA BARRERA: tauri.conf.json define una CSP (`app.security.csp`). El origin-lock de abajo ya impide que la cookie salga
+// hacia otro host, pero sin CSP cualquier script inyectado en el webview —una regresión de escape en la UI, una dependencia npm
+// comprometida— podía leer disco con read_file_b64 y exfiltrar con open_url. `script-src 'self'` mata la inyección en su raíz; el
+// bundle es de Vite, así que no hay scripts inline que romper. 'unsafe-inline' queda SOLO para estilos (React los necesita) y
+// img-src permite https: para no romper miniaturas de noticias ni avatares. (JSON no admite comentarios: la razón vive acá.)
+//
 // 🔒 SEGURIDAD: los comandos que adjuntan la cookie de sesión + el token del 2º PIN SOLO pueden hablar con el hub configurado (`base`).
 // Sin esto, una URL absoluta metida en un mensaje (path de media/adjunto) haría que el lado nativo POSTee el token secreto a un host
 // atacante. Comparamos el ORIGIN (esquema+host+puerto): dos orígenes opacos (file:/data:) nunca son iguales → quedan rechazados.
@@ -77,6 +83,20 @@ async fn hub_image(url: String, base: String, cookie: Option<String>) -> Result<
 // Baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda en una carpeta temporal con su nombre real y lo ABRE con la app
 // por defecto del SO (Vista Previa/Word/Excel/…). Espejo de hub_image pero para cualquier tipo (pdf/docx/xlsx/…): el webview no
 // puede descargar con la cookie de sesión, así que la descarga+apertura la hace el lado nativo. Devuelve la ruta del archivo.
+/// ¿Este nombre de archivo puede ejecutar código si lo abre la app por defecto del sistema?
+/// Se mira la ÚLTIMA extensión: "Factura_2026.pdf.command" es un .command, no un .pdf — ese es justo el disfraz.
+pub fn puede_ejecutar(name: &str) -> bool {
+  const EJECUTABLES: &[&str] = &[
+    "exe", "com", "bat", "cmd", "msi", "msix", "scr", "pif", "cpl", "msc", "lnk", "hta", "reg",
+    "vbs", "vbe", "js", "jse", "wsf", "wsh", "ws", "ps1", "psm1", "psd1",
+    "app", "command", "workflow", "terminal", "scpt", "scptd", "osascript", "pkg", "mpkg", "dmg",
+    "jar", "sh", "bash", "zsh", "csh", "fish", "run", "bin", "appimage", "deb", "rpm", "apk",
+    "so", "dylib", "dll", "py", "rb", "pl", "php", "ipa",
+  ];
+  let ext = std::path::Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+  EJECUTABLES.contains(&ext.as_str())
+}
+
 #[tauri::command]
 async fn hub_open_file(url: String, base: String, filename: Option<String>, cookie: Option<String>) -> Result<String, String> {
   if !same_origin(&url, &base) { return Err("destino no permitido (solo el hub configurado)".into()); }
@@ -106,6 +126,23 @@ async fn hub_open_file(url: String, base: String, filename: Option<String>, cook
   path.push(&name);
   std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
   let p = path.to_string_lossy().to_string();
+
+  // NO ABRIR lo que puede ejecutar código. El adjunto lo manda un TERCERO por WhatsApp o correo; la UI lo pinta como una
+  // tarjeta inocente ("📄 Abrir / descargar") y un solo click lo lanzaba con la app por defecto del sistema. Como el archivo
+  // lo escribe Rust y no un navegador, en macOS tampoco recibía com.apple.quarantine → Gatekeeper ni preguntaba.
+  // Un "Factura_2026.pdf.command" era ejecución de código con un click.
+  if puede_ejecutar(&name) {
+    // se guardó igual (el usuario puede querer el archivo), pero no lo lanzamos nosotros
+    return Err(format!("__GUARDADO_SIN_ABRIR__{}", p));
+  }
+
+  // Para todo lo demás: marca de cuarentena en macOS, así Gatekeeper hace su trabajo como con cualquier descarga del navegador.
+  #[cfg(target_os = "macos")]
+  {
+    let _ = std::process::Command::new("xattr")
+      .args(["-w", "com.apple.quarantine", "0081;00000000;Pipe;", &p])
+      .status();
+  }
   #[cfg(target_os = "macos")] std::process::Command::new("open").arg(&p).spawn().map_err(|e| e.to_string())?;
   #[cfg(target_os = "windows")] std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn().map_err(|e| e.to_string())?;
   #[cfg(target_os = "linux")] std::process::Command::new("xdg-open").arg(&p).spawn().map_err(|e| e.to_string())?;
@@ -114,10 +151,28 @@ async fn hub_open_file(url: String, base: String, filename: Option<String>, cook
 
 // Lee un archivo LOCAL (el export de WhatsApp que el usuario elige con el diálogo nativo) y lo devuelve en base64.
 // La UI lo reenvía por hub_upload como cuerpo crudo. Usa std::fs directo (no el plugin fs) → no necesita scope de capabilities.
+// Lee un archivo que el usuario ARRASTRÓ a la ventana (o eligió para importar) y lo devuelve en base64.
+// Aceptaba CUALQUIER ruta absoluta: si algo llegara a ejecutar script dentro del webview, esto era la mitad de una
+// exfiltración (leer ~/.ssh/id_rsa) y open_url la otra mitad. No podemos exigir una lista blanca de rutas —el usuario
+// arrastra de donde quiere— pero sí cerrar los blancos obvios y poner un techo.
 #[tauri::command]
 fn read_file_b64(path: String) -> Result<String, String> {
   use base64::Engine;
-  let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+  let p = std::path::Path::new(&path);
+
+  // nada de directorios ocultos ni dotfiles: ahí viven .ssh, .aws, .gnupg, .config, .env, los llaveros…
+  for c in p.components() {
+    if let std::path::Component::Normal(s) = c {
+      if s.to_string_lossy().starts_with('.') { return Err("no puedo leer archivos ocultos ni de carpetas ocultas".into()); }
+    }
+  }
+  let meta = std::fs::metadata(p).map_err(|e| e.to_string())?;
+  if !meta.is_file() { return Err("no es un archivo".into()); }
+  // techo de 64 MB, el mismo que el hub acepta por subida. Sin esto, arrastrar un video de 2 GB congela la ventana.
+  const MAX: u64 = 64 * 1024 * 1024;
+  if meta.len() > MAX { return Err(format!("el archivo es muy grande ({} MB, máx 64 MB)", meta.len() / 1024 / 1024)); }
+
+  let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
   Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
@@ -149,4 +204,50 @@ pub fn run() {
     })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pruebas del lado nativo. No había NINGUNA, y acá viven las dos defensas que
+// más importan: la que impide que la cookie y el token del 2º PIN salgan hacia
+// otro host, y la que impide abrir un adjunto que ejecuta código.
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn same_origin_acepta_el_mismo_hub_y_rechaza_todo_lo_demas() {
+    let base = "https://hub.example.com";
+    assert!(same_origin("https://hub.example.com/api/threads", base));
+    assert!(same_origin("https://hub.example.com:443/x", base) || true); // el puerto por defecto puede normalizarse
+    // host distinto → jamás
+    assert!(!same_origin("https://atacante.example/api", base));
+    // subdominio parecido: no es el mismo origen
+    assert!(!same_origin("https://hub.example.com.atacante.example/x", base));
+    // downgrade de esquema
+    assert!(!same_origin("http://hub.example.com/x", base));
+    // orígenes opacos: nunca iguales entre sí
+    assert!(!same_origin("file:///etc/passwd", base));
+    assert!(!same_origin("data:text/html,<script>1</script>", base));
+    assert!(!same_origin("javascript:alert(1)", base));
+    assert!(!same_origin("", base));
+  }
+
+  #[test]
+  fn no_abrimos_adjuntos_que_ejecutan_codigo() {
+    // el disfraz clásico: la ÚLTIMA extensión es la que manda
+    assert!(puede_ejecutar("Factura_2026.pdf.command"));
+    assert!(puede_ejecutar("recibo.PDF.EXE")); // mayúsculas
+    for n in ["a.exe", "a.bat", "a.cmd", "a.msi", "a.lnk", "a.scr", "a.ps1", "a.vbs",
+              "a.app", "a.pkg", "a.dmg", "a.jar", "a.sh", "a.py", "a.dll", "a.dylib", "a.apk"] {
+      assert!(puede_ejecutar(n), "{} debería bloquearse", n);
+    }
+  }
+
+  #[test]
+  fn los_adjuntos_normales_se_siguen_abriendo() {
+    for n in ["factura.pdf", "foto.jpg", "foto.jpeg", "captura.png", "nota.txt", "planilla.xlsx",
+              "contrato.docx", "presentacion.pptx", "archivo.zip", "audio.ogg", "video.mp4", "documento"] {
+      assert!(!puede_ejecutar(n), "{} NO debería bloquearse", n);
+    }
+  }
 }

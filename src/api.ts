@@ -291,9 +291,22 @@ export const importWhatsAppZipB64 = (b64: string, o: WaImportOpts = {}): Promise
 // baja una foto/avatar del hub (autenticada) como data URI, para el <img>
 export const hubImage = (path: string): Promise<string> =>
   invoke("hub_image", { url: /^https?:\/\//.test(path) ? path : BASE + path, base: BASE, cookie: SID || null }) as Promise<string> // 🔒 base: Rust rechaza si no es el hub
-// baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda y lo abre con la app por defecto del SO → devuelve la ruta local
-export const hubOpenFile = (path: string, filename?: string): Promise<string> =>
-  invoke("hub_open_file", { url: /^https?:\/\//.test(path) ? path : BASE + path, base: BASE, filename: filename || null, cookie: SID || null }) as Promise<string>
+// baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda y lo abre con la app por defecto del SO → devuelve la ruta local.
+// Rust NO abre lo que puede ejecutar código (lo manda un tercero): en ese caso guarda el archivo y avisa, en vez de lanzarlo.
+export const hubOpenFile = async (path: string, filename?: string): Promise<string> => {
+  try {
+    return (await invoke("hub_open_file", { url: /^https?:\/\//.test(path) ? path : BASE + path, base: BASE, filename: filename || null, cookie: SID || null })) as string
+  } catch (e: any) {
+    const msg = String(e?.message || e || "")
+    const i = msg.indexOf("__GUARDADO_SIN_ABRIR__")
+    if (i >= 0) {
+      const dest = msg.slice(i + "__GUARDADO_SIN_ABRIR__".length)
+      alert(`Este archivo puede ejecutar código, así que no lo abrí.\n\nLo guardé en:\n${dest}\n\nSi lo esperabas, abrilo vos desde ahí. Si no lo esperabas, borralo.`)
+      return dest
+    }
+    throw e
+  }
+}
 
 // ── 🔒 CUENTAS SECRETAS (paridad con web) — el token viaja por Rust (x-secret-token), acá solo los endpoints ──
 // estado del 2º PIN: ¿está configurado? ¿hay sesión secreta abierta ahora?
