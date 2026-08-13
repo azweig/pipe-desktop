@@ -38,7 +38,13 @@ async function j(path: string, opts: { method?: string; body?: string } = {}) {
     secret: SECRET, // 🔒 header x-secret-token cuando está desbloqueado (null = no se manda)
   })) as { status: number; body: string }
   if (r.status === 401) { const e: any = new Error("no autorizado"); e.code = 401; throw e }
-  if (r.status >= 400) { const e: any = new Error("HTTP " + r.status); e.code = r.status; throw e }
+  // El hub explica POR QUÉ falló en {error}. Tirar solo "HTTP 400" convertía cualquier fallo en un misterio
+  // (p.ej. un envío rechazado por falta de canal). Si el cuerpo trae error, ese es el mensaje.
+  if (r.status >= 400) {
+    let msg = "HTTP " + r.status
+    try { const b = JSON.parse(r.body || "{}"); if (b && b.error) msg = String(b.error) } catch { /* cuerpo no-JSON: nos quedamos con el código HTTP */ }
+    const e: any = new Error(msg); e.code = r.status; throw e
+  }
   try { return JSON.parse(r.body || "{}") } catch { return {} }
 }
 

@@ -570,13 +570,59 @@ export default function App() {
     return () => { stop = true; clearInterval(id) }
   }, [authed])
 
+  // POLL DE LA CONVERSACIÓN ABIERTA. El desktop no tenía ninguno: sólo refrescaba el hilo al abrirlo o después de enviar, así que
+  // un mensaje que llegaba mientras lo mirabas NO aparecía (parecía que "faltaban mensajes"), y la tarjeta de 📅 agendar —que se
+  // consulta una sola vez al abrir— nunca salía si el tema de la reunión surgía después. Web y mobile sí refrescan; esto empareja.
+  useEffect(() => {
+    const key = sel?.key
+    if (!key || !authed) return
+    let stop = false
+    const tick = async () => {
+      if (stop || document.hidden) return
+      try {
+        const d = await getThread(key)
+        if (stop || selRef.current?.key !== key) return // cambiaste de hilo mientras tanto
+        const incoming = d.items || []
+        if (incoming.length) {
+          setMsgs((cur) => {
+            const byId = new Map<string, Msg>()
+            for (const it of cur) byId.set(it.id, it)
+            let changed = false
+            for (const it of incoming) { if (!byId.has(it.id)) changed = true; byId.set(it.id, it) }
+            if (!changed) return cur // sin novedades → no re-render (evita parpadeo)
+            return [...byId.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0))
+          })
+          cacheSave(key, incoming, { maxRev: d.maxRev || 0 })
+        }
+      } catch { /* red caída: el próximo tick reintenta */ }
+      // 📅 el detector de agenda mira los últimos mensajes → hay que re-preguntarlo, no sólo al abrir
+      const isEmail = /^email:/i.test(key)
+      if (!isEmail) {
+        try { const r = await getSchedule(key); if (!stop && selRef.current?.key === key) setSched(r && r.found ? r : null) } catch { /* idem */ }
+      }
+    }
+    const id = setInterval(tick, 8000)
+    return () => { stop = true; clearInterval(id) }
+  }, [sel?.key, authed])
+
   const target = () => (tgtCh && targets.find((x) => x.channel === tgtCh)) || targets.find((x) => x.isDefault) || targets[0]
   const doSend = async (txt: string, covert = false) => {
     if (!txt.trim() || !sel) return
     const tg = target()
     // en encubierto la burbuja muestra tu texto REAL (+ badge); WhatsApp ve la tapadera que devuelve el server
-    setMsgs((cur) => [...cur, { id: "opt-" + Date.now(), dir: "out", text: txt, ts: Date.now(), channel: tg?.channel, ...(covert ? { covert: { text: txt, style: threadCovert || "poema" } } : {}) }]) // optimista
-    try { await sendMsg(sel.key, txt, tg, covert); await reloadThread(sel.key) } catch {}
+    const optId = "opt-" + Date.now()
+    setMsgs((cur) => [...cur, { id: optId, dir: "out", text: txt, ts: Date.now(), channel: tg?.channel, ...(covert ? { covert: { text: txt, style: threadCovert || "poema" } } : {}) }]) // optimista
+    // El server contesta {error} con HTTP 200. Antes se ignoraba la respuesta y se recargaba el hilo: la burbuja optimista
+    // desaparecía sin explicación y el mensaje NUNCA había salido — el síntoma era "lo mando y no se ve". Ahora el fallo se dice.
+    let r: any = null
+    try { r = await sendMsg(sel.key, txt, tg, covert) } catch (e: any) { r = { error: e?.message || "sin conexión con el hub" } }
+    if (r?.error) {
+      setMsgs((cur) => cur.filter((m) => m.id !== optId))
+      setDraft((d) => d || txt) // no te comas el texto: vuelve al compositor para reintentar
+      alert("No se pudo enviar: " + r.error)
+      return
+    }
+    await reloadThread(sel.key)
   }
   // corrector ✨: si está activo, muestro las 3 opciones (tal cual / corregido / mejorado); si no, mando tal cual.
   // NO borro el draft hasta tener la hoja abierta → si el corrector falla o cancelás, el texto NUNCA se pierde.
@@ -684,6 +730,9 @@ export default function App() {
   const summarize = async () => {
     if (!sel) return; setBusy("sum"); setSumCard("Resumiendo…")
     const r = await summarizeThread(sel.key, "all").catch(() => null); setBusy("")
+    // El hub devuelve {secret:true} cuando el hilo toca una línea oculta y el 2º PIN está puesto: NO es que falte
+    // conversación, es que no se puede leer. Decirlo, en vez de mentir con "no hay suficiente".
+    if (r?.secret) { setSumCard("🔒 Esta conversación incluye una línea oculta por tu 2º PIN. Desbloqueá con el botón PIN para poder resumirla.") ; return }
     setSumCard((r?.summary || r?.text || "").trim() || "No hay suficiente conversación para resumir.")
   }
   const confirmSchedule = async () => {
@@ -1034,6 +1083,9 @@ export default function App() {
           <div className="crole">{person?.role || (sel.channels || []).map((c) => CH[c]?.label || c).join(" · ")}</div>
           {((person as any)?.contacts?.phones || []).length > 0 ? <div className="crole" style={{ marginTop: 3 }}>📞 {(person as any).contacts.phones.map((n: string) => "+" + n).join(" · ")}</div> : null}
           <div className="cicons"><button>💬</button><button>✉️</button><button>📞</button><button>🗓</button></div>
+          {/* Perfil bloqueado por el 2º PIN: el hub no puede mandar bio/temas porque se calculan sobre TODO el hilo, incluida
+              la línea oculta. Antes esto se veía como un perfil vacío y parecía que Pipe no había cargado nada. */}
+          {(person as any)?.secret && (<><div className="cgrp">🔒 Perfil oculto</div><div className="cbox">Este contacto incluye una línea protegida por tu 2º PIN. Desbloqueá con el botón <b>PIN</b> para ver su ficha y resumirlo.</div></>)}
           {person?.bio && (<><div className="cgrp">✦ Contexto</div><div className="cbox">{person.bio}</div></>)}
           {(person?.pending || []).length > 0 && (<>
             <div className="cgrp">Pendientes detectados</div>
@@ -1092,8 +1144,17 @@ function AutopilotModal({ sel, onClose, onSaved }: { sel: Thread; onClose: () =>
   const [cfg, setCfg] = useState<any>(null)
   const [max, setMax] = useState("")
   useEffect(() => { getAutopilot(sel.key).then((c) => { setCfg(c); setMax(c.maxPerDay > 0 ? String(c.maxPerDay) : "") }).catch(() => setCfg({ enabled: false })) }, [sel.key])
-  const save = async () => { const m = max.trim() ? Math.max(1, Math.min(500, parseInt(max, 10) || 0)) : 0; await setAutopilot(sel.key, true, m).catch(() => {}); onSaved(true) }
-  const disable = async () => { await setAutopilot(sel.key, false).catch(() => {}); onSaved(false) }
+  // El piloto RESPONDE EN TU NOMBRE: decir "desactivado" cuando la llamada falló es el peor error posible acá — creerías que
+  // está apagado mientras sigue contestando. Por eso el estado solo cambia si el servidor confirmó.
+  const save = async () => {
+    const m = max.trim() ? Math.max(1, Math.min(500, parseInt(max, 10) || 0)) : 0
+    try { await setAutopilot(sel.key, true, m) } catch (e: any) { alert("No se pudo activar el piloto: " + (e?.message || "error")); return }
+    onSaved(true)
+  }
+  const disable = async () => {
+    try { await setAutopilot(sel.key, false) } catch (e: any) { alert("No se pudo desactivar el piloto — seguí asumiendo que está ACTIVO: " + (e?.message || "error")); return }
+    onSaved(false)
+  }
   return (
     <div className="modalbg" onClick={onClose}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
       <h3>🏖️ Piloto automático · {sel.name}</h3>
@@ -1566,7 +1627,8 @@ function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { 
     if (!r || r.error) { setSlkMsg({ text: (r && r.error) || "No se pudo conectar.", kind: "err" }); return }
     onToast("✓ Slack conectado" + (r.team ? ` (${r.team})` : "")); setSlkTok(""); setSlkMsg(null); setOpen(null); reload()
   }
-  const disconnectSlack = async () => { await removeSlack().catch(() => {}); onToast("Slack desconectado"); reload() }
+  // no cantar "desconectado" si el hub no lo confirmó: creerías que cortaste el acceso y seguiría conectado
+  const disconnectSlack = async () => { try { await removeSlack() } catch (e: any) { onToast("No se pudo desconectar Slack: " + (e?.message || "error")); return } onToast("Slack desconectado"); reload() }
   const saveSignal = async () => {
     if (!sgUrl.trim() || !sgNum.trim()) { setSgMsg({ text: "Completá la URL y tu número.", kind: "err" }); return }
     setSgBusy(true); setSgMsg({ text: "Guardando…", kind: "info" })
@@ -1574,7 +1636,7 @@ function MessagingChannels({ onToast, secretUnlocked, secret, reloadSecret }: { 
     if (!r || r.error) { setSgMsg({ text: (r && r.error) || "No se pudo guardar.", kind: "err" }); return }
     onToast("✓ Signal conectado"); setSgUrl(""); setSgNum(""); setSgMsg(null); setOpen(null); reload()
   }
-  const disconnectSignal = async () => { await removeSignal().catch(() => {}); onToast("Signal desconectado"); reload() }
+  const disconnectSignal = async () => { try { await removeSignal() } catch (e: any) { onToast("No se pudo desconectar Signal: " + (e?.message || "error")); return } onToast("Signal desconectado"); reload() }
 
   const slackOn = !!integ?.slack?.configured, signalOn = !!integ?.signal?.configured, tgOn = !!tg?.connected
 
@@ -1797,7 +1859,13 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
       setBusy(false); setEm({ name: "", user: "", pass: "" }); setEmSecret(false); setShowEmail(false); onToast(wantSecret ? "✓ Cuenta conectada (🔒 secreta)" : "✓ Cuenta conectada"); load()
     } else { setBusy(false); onToast((r && r.error) || "No se pudo — revisá las credenciales") }
   }
-  const removeEmail = async (label: string) => { setBusy(true); await removeEmailAccount(label).catch(() => {}); setBusy(false); load(); reloadSecret() }
+  const removeEmail = async (label: string) => {
+    setBusy(true)
+    let err = ""
+    try { await removeEmailAccount(label) } catch (e: any) { err = e?.message || "error" }
+    setBusy(false); load(); reloadSecret()
+    if (err) alert("No se pudo quitar la cuenta " + label + ": " + err) // la lista se recarga igual, así ves el estado REAL
+  }
   // marcar/desmarcar una cuenta de correo como secreta (solo con PIN); queda visible con 🔒 hasta que ocultes
   const toggleEmailSecret = async (label: string) => {
     const want = !isEmailSecret(label)
