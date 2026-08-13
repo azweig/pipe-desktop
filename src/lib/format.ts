@@ -11,11 +11,16 @@ export const colorOf = (s: string) => AV[[...(s || "?")].reduce((a, c) => a + c.
 // Up to 2 uppercase initials from a name ("Juan Perez" → "JP").
 export const initials = (n: string) => (n || "?").split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
 
-// Local HH:MM (es locale) for a timestamp; "" when missing.
-export const hhmm = (ts?: number) => ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : ""
+// Locale de fechas = idioma de la interfaz. Estaba clavado en "es", así que en inglés la app mostraba "12 mar"/"Ayer".
+// Se lee en cada llamada (no una const) porque el idioma se resuelve al arrancar, después de cargar este módulo.
+const loc = () => { try { return (localStorage.getItem("lang") || navigator.language || "es").slice(0, 2) } catch { return "es" } }
+
+// Local HH:MM for a timestamp; "" when missing.
+export const hhmm = (ts?: number) => ts ? new Date(ts).toLocaleTimeString(loc(), { hour: "2-digit", minute: "2-digit" }) : ""
 
 // Duration in seconds → "m:ss" (e.g. 75 → "1:15"); "" for empty/non-finite.
 export const fmtDur = (s?: number) => { if (!s || !isFinite(s)) return ""; s = Math.round(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") }
 
 // Relative time: today → HH:MM, yesterday → "Ayer", older → "12 mar".
-export const ago = (ts?: number) => { if (!ts) return ""; const d = (Date.now() - ts) / 86400000; if (d < 1) return hhmm(ts); if (d < 2) return "Ayer"; return new Date(ts).toLocaleDateString("es", { day: "numeric", month: "short" }) }
+// "Ayer" queda en español a propósito: es la FUENTE, y el diccionario del idioma activo lo traduce sobre el DOM.
+export const ago = (ts?: number) => { if (!ts) return ""; const d = (Date.now() - ts) / 86400000; if (d < 1) return hhmm(ts); if (d < 2) return "Ayer"; return new Date(ts).toLocaleDateString(loc(), { day: "numeric", month: "short" }) }

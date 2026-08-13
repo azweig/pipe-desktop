@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
+import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
 import { authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
@@ -912,6 +913,16 @@ export default function App() {
         <div className="avmenu-bg" onClick={() => setAvatarMenu(false)} />
         <div className="avmenu">
           <button onClick={() => { setAvatarMenu(false); setModal("settings") }}><span>⚙️</span>Configuración</button>
+          {/* idioma: el escritorio no tenía forma de cambiarlo (se creó sólo en español) */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 13 }}>
+            <span>🌐</span>
+            <select
+              aria-label="Idioma" value={currentLang()} onChange={(e) => setLang(e.target.value as Lang)}
+              style={{ flex: 1, background: "var(--bg2, #f2f3f7)", color: "inherit", border: "1px solid var(--line, #e2e3ee)", borderRadius: 8, padding: "4px 6px", font: "inherit", cursor: "pointer" }}
+            >
+              {LANGS.map((l) => <option key={l} value={l}>{LANG_NAMES[l]}</option>)}
+            </select>
+          </label>
           <button className="danger" onClick={doLogout}><span>↩</span>Cerrar sesión</button>
         </div>
       </>)}
