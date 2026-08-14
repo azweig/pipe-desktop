@@ -83,18 +83,35 @@ async fn hub_image(url: String, base: String, cookie: Option<String>) -> Result<
 // Baja un ARCHIVO/DOCUMENTO del hub (autenticado), lo guarda en una carpeta temporal con su nombre real y lo ABRE con la app
 // por defecto del SO (Vista Previa/Word/Excel/…). Espejo de hub_image pero para cualquier tipo (pdf/docx/xlsx/…): el webview no
 // puede descargar con la cookie de sesión, así que la descarga+apertura la hace el lado nativo. Devuelve la ruta del archivo.
-/// ¿Este nombre de archivo puede ejecutar código si lo abre la app por defecto del sistema?
-/// Se mira la ÚLTIMA extensión: "Factura_2026.pdf.command" es un .command, no un .pdf — ese es justo el disfraz.
-pub fn puede_ejecutar(name: &str) -> bool {
-  const EJECUTABLES: &[&str] = &[
-    "exe", "com", "bat", "cmd", "msi", "msix", "scr", "pif", "cpl", "msc", "lnk", "hta", "reg",
-    "vbs", "vbe", "js", "jse", "wsf", "wsh", "ws", "ps1", "psm1", "psd1",
-    "app", "command", "workflow", "terminal", "scpt", "scptd", "osascript", "pkg", "mpkg", "dmg",
-    "jar", "sh", "bash", "zsh", "csh", "fish", "run", "bin", "appimage", "deb", "rpm", "apk",
-    "so", "dylib", "dll", "py", "rb", "pl", "php", "ipa",
+/// ¿Es seguro que el sistema ABRA este archivo con su app por defecto?
+///
+/// LISTA BLANCA, no negra. La primera versión de esto era una denylist de ~50 extensiones y se evadía con un punto final:
+/// `Path::extension()` sobre "Factura.pdf.command." devuelve "" y el check no veía nada. Lo mismo con un espacio final
+/// (Windows los descarta al crear el archivo, así que el disco recibe "evil.exe" mientras el check vio ""), con un
+/// zero-width, y con todo lo que simplemente no estaba en la lista (.xlsm con macros, .inetloc, .zip…).
+/// Una denylist obliga a adivinar TODO lo que ejecuta; una allowlist solo pide enumerar lo que queremos abrir.
+/// Lo que no está acá se guarda igual, pero lo abre el usuario a mano.
+pub fn seguro_para_abrir(name: &str) -> bool {
+  const ABRIBLES: &[&str] = &[
+    // documentos
+    "pdf", "txt", "md", "rtf", "csv", "tsv", "log",
+    "doc", "docx", "odt", "xls", "xlsx", "ods", "ppt", "pptx", "odp", "pages", "numbers", "key",
+    // imágenes
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "heic", "heif", "avif", "svg",
+    // audio y video
+    "mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "amr",
+    "mp4", "m4v", "mov", "webm", "mkv", "avi", "3gp",
+    // otros inertes
+    "ics", "vcf", "json", "xml", "epub",
   ];
-  let ext = std::path::Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-  EJECUTABLES.contains(&ext.as_str())
+  // Normalizo lo que los sistemas de archivos y los visores ignoran, que es justo por donde se colaba el disfraz.
+  let limpio = name.trim_end_matches(|c: char| c == '.' || c == ' ' || c.is_whitespace() || c.is_control() || c == '\u{200b}' || c == '\u{200c}' || c == '\u{200d}' || c == '\u{feff}');
+  let ext = std::path::Path::new(limpio)
+    .extension().and_then(|e| e.to_str()).unwrap_or("")
+    .trim().trim_end_matches('.')
+    .to_lowercase();
+  if ext.is_empty() { return false } // sin extensión no sabemos qué es → no lo abrimos nosotros
+  ABRIBLES.contains(&ext.as_str())
 }
 
 #[tauri::command]
@@ -127,21 +144,26 @@ async fn hub_open_file(url: String, base: String, filename: Option<String>, cook
   std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
   let p = path.to_string_lossy().to_string();
 
-  // NO ABRIR lo que puede ejecutar código. El adjunto lo manda un TERCERO por WhatsApp o correo; la UI lo pinta como una
-  // tarjeta inocente ("📄 Abrir / descargar") y un solo click lo lanzaba con la app por defecto del sistema. Como el archivo
-  // lo escribe Rust y no un navegador, en macOS tampoco recibía com.apple.quarantine → Gatekeeper ni preguntaba.
-  // Un "Factura_2026.pdf.command" era ejecución de código con un click.
-  if puede_ejecutar(&name) {
-    // se guardó igual (el usuario puede querer el archivo), pero no lo lanzamos nosotros
-    return Err(format!("__GUARDADO_SIN_ABRIR__{}", p));
-  }
-
-  // Para todo lo demás: marca de cuarentena en macOS, así Gatekeeper hace su trabajo como con cualquier descarga del navegador.
+  // CUARENTENA PRIMERO, para TODOS. El adjunto lo manda un tercero y el archivo lo escribe Rust, no un navegador, así que
+  // sin esto nunca recibía com.apple.quarantine y Gatekeeper no preguntaba nada.
+  // Ojo con el orden: antes esto estaba DESPUÉS del early-return del archivo peligroso, o sea que el .pdf inofensivo se
+  // marcaba y el .command bloqueado se escribía SIN marcar — y encima la UI le decía al usuario dónde estaba y que lo
+  // abriera a mano. Quedaba peor que descargarlo con el navegador. El que más necesita la marca es justamente el que no abrimos.
   #[cfg(target_os = "macos")]
   {
-    let _ = std::process::Command::new("xattr")
+    let marcado = std::process::Command::new("xattr")
       .args(["-w", "com.apple.quarantine", "0081;00000000;Pipe;", &p])
-      .status();
+      .status().map(|s| s.success()).unwrap_or(false);
+    if !marcado {
+      // sin cuarentena no lo abrimos: preferimos que el usuario lo abra a mano y que Gatekeeper no quede fuera del camino
+      return Err(format!("__GUARDADO_SIN_ABRIR__{}", p));
+    }
+  }
+
+  // Y solo abrimos lo que está en la lista blanca de tipos inertes.
+  if !seguro_para_abrir(&name) {
+    // se guardó igual (el usuario puede querer el archivo), pero no lo lanzamos nosotros
+    return Err(format!("__GUARDADO_SIN_ABRIR__{}", p));
   }
   #[cfg(target_os = "macos")] std::process::Command::new("open").arg(&p).spawn().map_err(|e| e.to_string())?;
   #[cfg(target_os = "windows")] std::process::Command::new("cmd").args(["/C", "start", "", &p]).spawn().map_err(|e| e.to_string())?;
@@ -233,21 +255,23 @@ mod tests {
   }
 
   #[test]
-  fn no_abrimos_adjuntos_que_ejecutan_codigo() {
-    // el disfraz clásico: la ÚLTIMA extensión es la que manda
-    assert!(puede_ejecutar("Factura_2026.pdf.command"));
-    assert!(puede_ejecutar("recibo.PDF.EXE")); // mayúsculas
-    for n in ["a.exe", "a.bat", "a.cmd", "a.msi", "a.lnk", "a.scr", "a.ps1", "a.vbs",
-              "a.app", "a.pkg", "a.dmg", "a.jar", "a.sh", "a.py", "a.dll", "a.dylib", "a.apk"] {
-      assert!(puede_ejecutar(n), "{} debería bloquearse", n);
+  fn no_abrimos_nada_que_pueda_ejecutar_codigo() {
+    // el disfraz clásico y sus variantes: TODAS se colaban con la denylist anterior
+    for n in ["Factura.pdf.command", "Factura.pdf.command.", "Factura.pdf.exe ", "recibo.PDF.EXE",
+              "Factura.pdf.command\u{200b}", "Presupuesto.xlsm", "Reunion.inetloc", "fotos.zip",
+              "a.exe", "a.bat", "a.msi", "a.lnk", "a.scr", "a.ps1", "a.vbs", "a.app", "a.pkg",
+              "a.dmg", "a.jar", "a.sh", "a.py", "a.dll", "a.dylib", "a.apk", "sin_extension",
+              "raro.desconocido", "x.", "x. ", ""] {
+      assert!(!seguro_para_abrir(n), "{:?} NO debería abrirse", n);
     }
   }
 
   #[test]
   fn los_adjuntos_normales_se_siguen_abriendo() {
-    for n in ["factura.pdf", "foto.jpg", "foto.jpeg", "captura.png", "nota.txt", "planilla.xlsx",
-              "contrato.docx", "presentacion.pptx", "archivo.zip", "audio.ogg", "video.mp4", "documento"] {
-      assert!(!puede_ejecutar(n), "{} NO debería bloquearse", n);
+    for n in ["factura.pdf", "foto.jpg", "foto.JPEG", "captura.png", "nota.txt", "planilla.xlsx",
+              "contrato.docx", "presentacion.pptx", "audio.ogg", "nota.m4a", "video.mp4",
+              "agenda.ics", "contacto.vcf", "libro.epub"] {
+      assert!(seguro_para_abrir(n), "{:?} SÍ debería abrirse", n);
     }
   }
 }
