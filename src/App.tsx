@@ -632,7 +632,7 @@ export default function App() {
     if (covertOn) { setDraft(""); return doSend(txt, true) } // encubierto: cifrado directo, sin corrector
     if (!correctOn) { setDraft(""); return doSend(txt) }
     setBusy("correct")
-    const c = await correctText(txt, target()?.channel).catch(() => null)
+    const c = await correctText(txt, target()?.channel, sel?.key).catch(() => null)
     setBusy("")
     if (!c) { alert("El corrector no respondió — probá de nuevo, o apagá ✨ para enviar tal cual."); return } // texto intacto en el input
     if (!c.corrected && !c.alternative) { setDraft(""); return doSend(txt) } // no había nada que corregir → mando tal cual
@@ -658,7 +658,7 @@ export default function App() {
         if (ai) { // dictado: transcribo y ofrezco las 3 opciones de texto
           setBusy("stt"); const r = await sttB64(b64, mime.split(";")[0]).catch(() => null); setBusy("")
           const t = (r?.text || "").trim(); if (!t) return alert("No pude entender el audio.")
-          const c = await correctText(t, target()?.channel).catch(() => null)
+          const c = await correctText(t, target()?.channel, sel?.key).catch(() => null)
           setSendOpts({ original: t, corrected: c?.corrected || t, alternative: c?.alternative || "" })
         } else { // nota de voz real
           setMsgs((cur) => [...cur, { id: "opt-" + Date.now(), dir: "out", text: "🎤 Nota de voz", ts: Date.now(), channel: target()?.channel, mediaType: "audio" }])

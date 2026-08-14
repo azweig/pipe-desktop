@@ -249,7 +249,9 @@ export const investigateContact = (key: string, links: SocialLinks): Promise<Con
 export const summarizeMedia = (id: string): Promise<{ summary?: string; transcript?: string; lang?: string; error?: string }> =>
   j("/api/media/summarize", { method: "POST", body: JSON.stringify({ id }) })
 // composer rico (paridad con web/mobile)
-export const correctText = (text: string, channel?: string) => j("/api/compose/correct", { method: "POST", body: JSON.stringify({ text, channel }) })
+// 🔒 `key` (la clave del hilo) va para que el server, si el destino es una cuenta secreta, corrija con el modelo local
+// en vez de mandar lo que estás escribiendo a un tercero.
+export const correctText = (text: string, channel?: string, key?: string) => j("/api/compose/correct", { method: "POST", body: JSON.stringify({ text, channel, key }) })
 export const summarizeThread = (key: string, range = "today") => j("/api/thread/summarize?key=" + encodeURIComponent(key) + "&range=" + range)
 export const getSchedule = (key: string) => j("/api/thread/schedule?key=" + encodeURIComponent(key))
 export const createSchedule = (payload: any) => j("/api/schedule/create", { method: "POST", body: JSON.stringify(payload) })
