@@ -332,3 +332,8 @@ export type Thread = {
   group?: boolean; pinned?: boolean; silenced?: boolean; escalated?: boolean; escalatedReason?: string
 }
 export type Msg = { id: string; dir: string; name?: string; text?: string; ts?: number; channel?: string; media?: string | null; mediaType?: string | null; auto?: boolean; summary?: string; covert?: { text: string; style?: string }; secret?: boolean; hasBody?: boolean; full?: string; attachments?: string; meeting?: boolean }
+
+// EMPEZAR UNA CONVERSACIÓN NUEVA: el server resuelve lo que escribiste (teléfono / correo) a la clave de hilo de
+// siempre. No crea nada: si ya existe conversación con ese destino, devuelve la que hay.
+export const nuevaConversacion = (destino: string, channel?: string) =>
+  j("/api/conversation/new", { method: "POST", body: JSON.stringify({ destino, channel }) })
