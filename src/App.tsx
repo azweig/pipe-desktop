@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
-import { nuevaConversacion, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -429,6 +429,13 @@ export default function App() {
   // así que el texto de un prompt del navegador se quedaría en español en las demás lenguas. Y el mensaje de error lo
   // pone el hub ("ese es tu propio número", "falta el código de país"): tragárselo con un texto genérico era perder
   // justo la parte útil.
+  // Checklist de primer arranque, igual que en la web. Esta app NO puede conectar cuentas (no tiene los flujos de QR ni
+  // de contraseña de aplicación), así que muestra QUÉ falta y manda a la web del hub a resolverlo. Ocultarlo del todo
+  // era peor: el usuario de escritorio no se enteraba de que le faltaba conectar el correo.
+  const [onb, setOnb] = useState<any>(null)
+  const cargarOnb = useCallback(() => { getOnboarding().then(setOnb).catch(() => setOnb(null)) }, [])
+  useEffect(() => { if (!authed) return; cargarOnb(); const id = setInterval(cargarOnb, 120000); return () => clearInterval(id) }, [authed, cargarOnb])
+
   const [nuevoChat, setNuevoChat] = useState(false)
   const [destino, setDestino] = useState("")
   const [destErr, setDestErr] = useState("")
@@ -967,6 +974,20 @@ export default function App() {
       <div className="side">
         <button className="newbtn" onClick={() => { setDestErr(""); setNuevoChat(true) }} title="Escribirle a alguien que todavía no te escribió">＋ Nuevo</button>
         <div className="search"><span style={{ opacity: .6 }}>🔎</span><input value={query} onChange={(e) => { setQuery(e.target.value); if (!e.target.value.trim()) setAiRes(null) }} onKeyDown={(e) => { if (e.key === "Enter") runAi() }} placeholder="Buscar — nombre, teléfono, email…" />{query ? <span onClick={() => { setQuery(""); setAiRes(null) }} style={{ cursor: "pointer", opacity: .6 }}>✕</span> : null}<button className="aibtn" data-tip="Preguntá a la IA — busca en TODO (⚡ facetas / 🧠 RAG)" onClick={runAi} disabled={!query.trim()}>🤖</button></div>
+        {onb && !onb.listo ? (
+          <div className="onbcard">
+            <div className="onbhead"><b>Configurá tu hub</b><span>{onb.done}/{onb.total}</span></div>
+            {onb.steps.map((s: any) => (
+              <div key={s.id} className={"onbrow" + (s.ok ? " done" : "")}>
+                <span>{s.ok ? "✓" : s.icon}</span>
+                <span className="onbt">{s.title}</span>
+              </div>
+            ))}
+            {/* openExternal (invoke open_url), como los otros links de esta app: un <a target="_blank"> no abre el
+                navegador del sistema desde el WebView, y encima la CSP del Tauri bloquea navegar a otro origen. */}
+            <a className="onbbtn" href={getBase()} onClick={(e) => { e.preventDefault(); openExternal(getBase()) }}>Configurar en la web ↗</a>
+          </div>
+        ) : null}
         <div className="grp">Bandeja</div>
         {NAV.map((n) => (
           <div key={n.id} className={"navitem" + (nav === n.id ? " on" : "")} onClick={() => setNav(n.id)}>

@@ -4,6 +4,7 @@
 // - RULES: para texto con números/fechas interpolados.
 export default {
   MAP: {
+    "Configurar en la web ↗": "Set up on the web ↗",
     // ── empezar una conversación (bloque de paridad de las 3 apps) ──
     "＋ Nuevo": "✎ New", "Escribirle a alguien que todavía no te escribió": "Message someone who hasn't written to you yet",
     "¿A quién le escribís?\n\nUn teléfono con código de país (+51 999 111 222) o un correo.": "Who are you writing to?\n\nA phone number with country code (+1 555 111 222) or an email address.",

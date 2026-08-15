@@ -337,3 +337,7 @@ export type Msg = { id: string; dir: string; name?: string; text?: string; ts?: 
 // siempre. No crea nada: si ya existe conversación con ese destino, devuelve la que hay.
 export const nuevaConversacion = (destino: string, channel?: string) =>
   j("/api/conversation/new", { method: "POST", body: JSON.stringify({ destino, channel }) })
+
+// checklist de primer arranque (WhatsApp / correo / IA). El cálculo vive en el hub: una sola fuente de verdad para las
+// tres apps, en vez de que cada cliente repita las reglas de "está conectado" y queden desincronizadas.
+export const getOnboarding = () => j("/api/onboarding")

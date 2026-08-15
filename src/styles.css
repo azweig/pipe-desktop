@@ -614,3 +614,12 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .att-role { font-weight: 400; color: var(--muted); font-size: 12px; }
 .att-sub { font-size: 11.5px; color: var(--muted2); margin-top: 1px; }
 .att-conf { font-size: 11.5px; font-weight: 600; color: var(--ok); }
+
+/* checklist de primer arranque (mismo contenido que la web; acá sólo informa y manda a configurar) */
+.onbcard { background: var(--panel2); border-radius: 12px; padding: 10px; margin: 8px 0 4px; }
+.onbhead { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
+.onbhead span { color: var(--muted); }
+.onbrow { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 3px 0; color: var(--ink); }
+.onbrow.done { color: var(--muted); }
+.onbt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onbbtn { display: block; text-align: center; margin-top: 8px; background: var(--accent); color: #fff; border-radius: 8px; padding: 7px; font-size: 12.5px; font-weight: 700; text-decoration: none; }
