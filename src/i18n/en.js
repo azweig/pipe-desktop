@@ -4,6 +4,13 @@
 // - RULES: para texto con números/fechas interpolados.
 export default {
   MAP: {
+    "Teléfono o correo": "Phone or email",
+    "Usuario o id de Telegram": "Telegram username or id", "Usuario o id de Slack": "Slack username or id",
+    "Usuario o id de Signal": "Signal username or id", "Usuario o id de Teams": "Teams username or id",
+    "Ese identificador no parece válido.": "That identifier doesn't look valid.",
+    "Esa dirección de correo no parece válida.": "That email address doesn't look valid.",
+    "Ese número no parece real.": "That number doesn't look real.",
+    "Ese número parece incompleto: poné el código de país (ej: +51 999 111 222).": "That number looks incomplete — add the country code (e.g. +1 555 111 222).",
     "Configurar en la web ↗": "Set up on the web ↗",
     // ── empezar una conversación (bloque de paridad de las 3 apps) ──
     "＋ Nuevo": "✎ New", "Escribirle a alguien que todavía no te escribió": "Message someone who hasn't written to you yet",

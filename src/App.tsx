@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
-import { nuevaConversacion, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -439,17 +439,29 @@ export default function App() {
   const [nuevoChat, setNuevoChat] = useState(false)
   const [destino, setDestino] = useState("")
   const [destErr, setDestErr] = useState("")
+  const [canales, setCanales] = useState<any[]>([])
+  const [canal, setCanal] = useState("")
+  useEffect(() => {
+    if (!nuevoChat) return
+    canalesNuevaConv().then((r: any) => {
+      const cs = r?.channels || []
+      setCanales(cs)
+      // si el canal que quedó elegido de una vez anterior ya no está (se desconectó), volver al default: si no, el
+      // selector mostraba "Teléfono o correo" y se seguía mandando el canal viejo.
+      setCanal((c) => (cs.some((x: any) => x.id === c) ? c : ""))
+    }).catch(() => { setCanales([]); setCanal("") })
+  }, [nuevoChat])
   const abrirNuevoChat = useCallback(async () => {
     const v = destino.trim()
     if (!v) { setDestErr("Escribí un teléfono, un correo o un usuario."); return }
     setDestErr("")
     try {
-      const r: any = await nuevaConversacion(v)
+      const r: any = await nuevaConversacion(v, canal)
       if (!r || r.error) { setDestErr(r?.error || "No pude resolver ese destino."); return }
       setNuevoChat(false); setDestino("")
       open({ key: r.key, name: r.name, lastChannel: r.channel } as Thread)
     } catch (e: any) { setDestErr(e?.message || "No pude resolver ese destino.") } // j() TIRA con el mensaje del hub
-  }, [destino])
+  }, [destino, canal])
 
   const open = useCallback(async (t: Thread) => {
     // reabrir el MISMO hilo hace poco → reusamos su contexto (persona/targets/agenda/encubierto) en vez de re-pedirlo
@@ -1169,7 +1181,12 @@ export default function App() {
         <div className="modalbg" onClick={() => setNuevoChat(false)}><div className="modalcard" onClick={(e) => e.stopPropagation()}>
           <h3>✎ Nueva conversación</h3>
           <p className="modalsub">Un teléfono con código de país (+51 999 111 222) o un correo. Si ya hablaste con esa persona, se abre la conversación que ya existe.</p>
-          <input value={destino} autoFocus className="modalinput" placeholder="+51 999 111 222  ·  alguien@empresa.com"
+          {canales.length > 1 ? (
+            <select className="modalinput" value={canal} onChange={(e) => setCanal(e.target.value)}>
+              {canales.map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          ) : null}
+          <input value={destino} autoFocus className="modalinput" placeholder={(canales.find((c: any) => c.id === canal) || {}).hint || "+51 999 111 222  ·  alguien@empresa.com"}
             onChange={(e) => { setDestino(e.target.value); setDestErr("") }}
             onKeyDown={(e) => { if (e.key === "Enter") abrirNuevoChat() }} />
           {destErr ? <p className="modalsub" style={{ color: "#e5484d" }}>{destErr}</p> : null}

@@ -341,3 +341,6 @@ export const nuevaConversacion = (destino: string, channel?: string) =>
 // checklist de primer arranque (WhatsApp / correo / IA). El cálculo vive en el hub: una sola fuente de verdad para las
 // tres apps, en vez de que cada cliente repita las reglas de "está conectado" y queden desincronizadas.
 export const getOnboarding = () => j("/api/onboarding")
+
+// canales que se pueden estrenar (sólo los CONECTADOS: ofrecer uno sin conectar sería un callejón sin salida)
+export const canalesNuevaConv = () => j("/api/conversation/channels")
