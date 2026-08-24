@@ -1878,7 +1878,7 @@ function ConfirmDialog({ title, body, confirmLabel = "Eliminar cuenta", onCancel
   )
 }
 function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secretToggle }: { onClose: () => void; onOpenAutopilot: () => void; onToast: (m: string) => void; secretUnlocked: boolean; secretToggle: () => void }) {
-  const [tab, setTab] = useState<"canales" | "ia" | "notif" | "apify">("canales")
+  const [tab, setTab] = useState<"canales" | "ia" | "notif" | "apify" | "backup">("canales")
   const [hub, setHub] = useState<any>(null)
   const [accts, setAccts] = useState<any>({ email: [] })
   const [llm, setLlm] = useState<any>(null)
@@ -1899,6 +1899,8 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
   const [ap, setAp] = useState({ name: "", token: "" }); const [showAp, setShowAp] = useState(false); const [apBusy, setApBusy] = useState(false)
   const [showActors, setShowActors] = useState(false); const [actorsDraft, setActorsDraft] = useState(""); const [actorsErr, setActorsErr] = useState("")
   const loadApify = async () => { const r = await getApifyAccounts().catch(() => ({ accounts: [] } as any)); setApify(r || { accounts: [] }) }
+  const [backupSt, setBackupSt] = useState<any>(null)
+  useEffect(() => { if (tab === "backup" && !backupSt) fetch(getBase().replace(/\/$/, "") + "/api/backup/status", { credentials: "include" }).then((r) => r.json()).then(setBackupSt).catch(() => setBackupSt({ connected: false })) }, [tab])
   useEffect(() => { if (tab === "apify" && !apify) loadApify() }, [tab])
   const addAp = async () => {
     if (!ap.name.trim() || !ap.token.trim()) { onToast("Falta el nombre o el token de Apify."); return }
@@ -1992,7 +1994,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
         <button onClick={onClose} style={{ fontSize: 20, color: "var(--muted)", width: 30, height: 30 }}>✕</button>
       </div>
       <div className="segtabs">
-        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["apify", "🔍 Enriquecer"], ["notif", "🔔 Avisos"]] as [string, string][]).map(([id, l]) =>
+        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["apify", "🔍 Enriquecer"], ["notif", "🔔 Avisos"], ["backup", "💾 Backup"]] as [string, string][]).map(([id, l]) =>
           <button key={id} className={"segtab" + (tab === id ? " on" : "")} onClick={() => setTab(id as any)}>{l}</button>)}
       </div>
       {loading ? <div className="center" style={{ height: 120 }}><div className="spin" /></div> : (<>
@@ -2082,6 +2084,24 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
             ) : null}
           </>)}
           <div className="cfg-note2">La investigación corre de forma anónima con estas cuentas. Se usa desde el perfil de cada contacto, en Contactos.{apify?.month ? ` Uso de ${apify.month}.` : ""}</div>
+        </>)}
+        {tab === "backup" && (<>
+          {/* El OAuth va por el NAVEGADOR (openExternal): dentro del WebView, Google bloquea el login. Mismo motivo
+              por el que el onboarding usa openExternal en vez de <a target="_blank">. */}
+          <div className="secthead">Una copia fuera del server</div>
+          {backupSt?.connected
+            ? <div className="card"><b>✅ Google Drive conectado</b><div className="sub">{backupSt.email}</div>
+                <div className="sub" style={{ marginTop: 6 }}>{backupSt.ultimo ? `última copia local: ${backupSt.ultimo}` : "esperando la primera"}</div></div>
+            : <div className="card"><b>⚠️ Todo vive en un solo disco</b>
+                <div className="sub">Si ese disco falla o alguien borra algo, no hay vuelta atrás.</div></div>}
+          <div className="sub" style={{ margin: "10px 0" }}>
+            Se sube tu base, tu configuración y tus credenciales <b>ya cifradas</b> con tu passphrase: Google guarda algo
+            que no puede leer. Pipe pide el permiso mínimo (<code>drive.file</code>): <b>solo ve los archivos que él mismo
+            sube</b>, no el resto de tu Drive. Se guardan las últimas 5 y las viejas se borran solas.
+          </div>
+          <button className="btn" onClick={() => openExternal(getBase().replace(/\/$/, "") + "/oauth/backup/start")}>
+            {backupSt?.connected ? "Reconectar o cambiar de cuenta" : "Conectar Google Drive"}
+          </button>
         </>)}
         {tab === "notif" && (<>
           <label className="modallabel" style={{ marginTop: 6 }}>🌙 Horas de silencio — no te aviso en ese rango</label>
