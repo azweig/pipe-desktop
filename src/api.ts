@@ -140,6 +140,7 @@ export const suggestObjetivos = (): Promise<any[]> => j("/api/objetivos/suggest"
 export const getEspacios = (): Promise<any[]> => j("/api/espacios")
 export const getEspacioView = (id: string) => j("/api/espacio/view?id=" + encodeURIComponent(id))
 export const saveEspacio = (b: { name: string; icon?: string; parent?: string | null }) => j("/api/espacio", { method: "POST", body: JSON.stringify(b) })
+export const deleteEspacio = (id: string) => j("/api/espacio/delete", { method: "POST", body: JSON.stringify({ id }) })
 export const addEspacioRule = (id: string, type: string, value: string) => j("/api/espacio/rule", { method: "POST", body: JSON.stringify({ id, type, value }) })
 export const delEspacioRule = (id: string, idx: number) => j("/api/espacio/rule/delete", { method: "POST", body: JSON.stringify({ id, idx }) })
 export const addEspacioException = (id: string, type: string, value: string) => j("/api/espacio/exception", { method: "POST", body: JSON.stringify({ id, type, value }) })
