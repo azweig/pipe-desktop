@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback, useRef, Fragment } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
+import { configurar as configurarCola, encolar, suscribir, pendientesDe, nuevoMsgId, flush as flushCola, type ItemCola } from "./outbox"
 import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
@@ -223,7 +224,7 @@ function Bubble({ m, isGroup, onFeedback, onOpenSender }: { m: Msg; isGroup?: bo
       {hasMedia && caption ? <div style={{ marginTop: 6 }}><Linkified text={caption} /></div> : null}
       {m.summary ? <div className="msgsum">✦ {m.summary}</div> : null}
       {m.auto ? <div className="autobadge" onClick={() => onFeedback?.(m)} title="Respondido por el piloto — calificar">🤖 lo respondió el piloto · calificar</div> : null}
-      <div className="btime">{hhmm(m.ts)}</div>
+      <div className="btime">{hhmm(m.ts)}{(m as any).pendiente ? " 🕐" : (m as any).fallo ? " ⚠️" : ""}</div>
     </div>
   )
 }
@@ -326,6 +327,18 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const stickerRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false) // 🖼️ overlay al arrastrar archivos a la conversación
+  const [colaRev, setColaRev] = useState(0) // sube cuando la cola de envío cambia → repinta los 🕐
+  // Lo que sigue en la cola se re-inyecta al pintar: recargar el hilo reemplaza `msgs` con lo del server y sin esto
+  // la burbuja pendiente desaparecía de la vista aunque el envío siguiera vivo — parecería que el mensaje se perdió.
+  const conCola = useMemo(() => {
+    if (!sel) return msgs
+    const enCola = pendientesDe(sel.key).filter((it) => !msgs.some((m) => m.id === it.msgId))
+    if (!enCola.length) return msgs
+    return [...msgs, ...enCola.map((it) => ({ id: it.msgId, dir: "out", text: it.text, ts: it.ts, channel: it.channel, pendiente: true } as any))]
+    // `colaRev` parece de más para el linter, pero NO lo es: pendientesDe() lee estado que vive fuera de React,
+    // así que este contador es la única señal de que la cola cambió.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msgs, sel, colaRev])
   const [ctPick, setCtPick] = useState<{ q: string } | null>(null) // 👤 selector de contacto a enviar (vCard)
   const syncingRef = useRef(false)
   const ctxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)   // timer del contexto diferido (persona/targets/agenda/encubierto) — se cancela si cambiás de hilo rápido
@@ -375,6 +388,22 @@ export default function App() {
     catch { setAiRes({ error: true }) }
   }, [query])
   const reloadThread = async (key: string) => { try { const d = await getThread(key); setMsgs(d.items || []); cacheSave(key, d.items || [], { maxRev: d.maxRev || 0 }) } catch {} }
+
+  // La cola vive FUERA de React (sobrevive re-render y cierres de ventana). Acá le decimos cómo mandar y
+  // escuchamos: "enviado" recarga el hilo para ver el mensaje real, "fallo" avisa con el motivo, y cualquier
+  // cambio repinta para que se vea el 🕐.
+  const selKeyRef = useRef<string | null>(null)
+  useEffect(() => { selKeyRef.current = sel?.key ?? null }, [sel])
+  useEffect(() => {
+    configurarCola((it: ItemCola) => sendMsg(it.key, it.text, { channel: it.channel, target: it.target }, !!it.covert, it.msgId))
+    const off = suscribir((ev) => {
+      setColaRev((n) => n + 1)
+      if (ev.tipo === "fallo") alert("No se pudo enviar: " + ev.motivo)
+      if (ev.tipo === "enviado" && selKeyRef.current === ev.item.key) void reloadThread(ev.item.key)
+    })
+    void flushCola()
+    return off
+  }, [])
   // 💾 SYNC DE TEXTO COMPLETO: baja TODO el texto de TODAS las conversaciones a tu Mac (IndexedDB), en 2do plano.
   // Las imágenes/media quedan on-demand (por link) — solo el texto se guarda entero. Resumible (guarda hasta dónde llegó).
   const fullTextSync = async (list: Thread[]) => {
@@ -650,20 +679,12 @@ export default function App() {
   const doSend = async (txt: string, covert = false) => {
     if (!txt.trim() || !sel) return
     const tg = target()
-    // en encubierto la burbuja muestra tu texto REAL (+ badge); WhatsApp ve la tapadera que devuelve el server
-    const optId = "opt-" + Date.now()
-    setMsgs((cur) => [...cur, { id: optId, dir: "out", text: txt, ts: Date.now(), channel: tg?.channel, ...(covert ? { covert: { text: txt, style: threadCovert || "poema" } } : {}) }]) // optimista
-    // El server contesta {error} con HTTP 200. Antes se ignoraba la respuesta y se recargaba el hilo: la burbuja optimista
-    // desaparecía sin explicación y el mensaje NUNCA había salido — el síntoma era "lo mando y no se ve". Ahora el fallo se dice.
-    let r: any = null
-    try { r = await sendMsg(sel.key, txt, tg, covert) } catch (e: any) { r = { error: e?.message || "sin conexión con el hub" } }
-    if (r?.error) {
-      setMsgs((cur) => cur.filter((m) => m.id !== optId))
-      setDraft((d) => d || txt) // no te comas el texto: vuelve al compositor para reintentar
-      alert("No se pudo enviar: " + r.error)
-      return
-    }
-    await reloadThread(sel.key)
+    // A LA COLA, no directo al server. Con 502 intermitentes, mandar directo significaba perder el mensaje: la
+    // burbuja desaparecía y el texto volvía al compositor. Ahora se queda con 🕐 y se reintenta hasta que salga.
+    // En encubierto la burbuja muestra tu texto REAL (+ badge); WhatsApp ve la tapadera que devuelve el server.
+    const msgId = nuevoMsgId()
+    setMsgs((cur) => [...cur, { id: msgId, dir: "out", text: txt, ts: Date.now(), channel: tg?.channel, pendiente: true, ...(covert ? { covert: { text: txt, style: threadCovert || "poema" } } : {}) }])
+    encolar({ msgId, key: sel.key, text: txt, channel: tg?.channel, target: tg?.target, covert, ts: Date.now() })
   }
   // corrector ✨: si está activo, muestro las 3 opciones (tal cual / corregido / mejorado); si no, mando tal cual.
   // NO borro el draft hasta tener la hoja abierta → si el corrector falla o cancelás, el texto NUNCA se pierde.
@@ -1115,7 +1136,7 @@ export default function App() {
             {!loadingThread && !threadErr && hasMore ? <div className="loadolder" onClick={loadOlder}>{loadingMore ? "Cargando…" : "▲ Cargar mensajes anteriores"}</div> : null}
             {loadingThread ? <div className="center"><div className="spin" /></div>
               : threadErr ? <div className="center" style={{ flexDirection: "column", gap: 10 }}><span style={{ color: "var(--muted)" }}>{threadErr}</span><button className="mbtn" onClick={() => open(sel)}>Reintentar</button></div>
-              : <Messages key={sel.key} msgs={msgs} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} onOpenSender={openByName} onOpenEmail={(m) => setModal({ email: m })} />}
+              : <Messages key={sel.key} msgs={conCola} isGroup={!!sel.group} onFeedback={(m) => setModal({ fb: m.id, original: m.text || "" })} onOpenSender={openByName} onOpenEmail={(m) => setModal({ email: m })} />}
             {sumCard ? <div className="aisum" style={{ margin: "10px 6px" }}>📝 {sumCard}</div> : null}
           </div>
           <div className="composer">

@@ -146,8 +146,10 @@ export const delEspacioRule = (id: string, idx: number) => j("/api/espacio/rule/
 export const addEspacioException = (id: string, type: string, value: string) => j("/api/espacio/exception", { method: "POST", body: JSON.stringify({ id, type, value }) })
 export const delEspacioException = (id: string, idx: number) => j("/api/espacio/exception/delete", { method: "POST", body: JSON.stringify({ id, idx }) })
 export const getTargets = (key: string) => j("/api/thread/targets?key=" + encodeURIComponent(key))
-export const sendMsg = (key: string, text: string, t?: any, covert = false) =>
-  j("/api/send", { method: "POST", body: JSON.stringify({ key, text, channel: t?.channel, target: t?.target, covert }) })
+// `msgId` (opcional pero lo manda siempre la cola): el server lo reserva antes de enviar, así un reintento tras un
+// 502 no manda el mensaje dos veces. Ver src/outbox.ts.
+export const sendMsg = (key: string, text: string, t?: any, covert = false, msgId?: string) =>
+  j("/api/send", { method: "POST", body: JSON.stringify({ key, text, channel: t?.channel, target: t?.target, covert, msgId }) })
 // modo encubierto (El Santo): config por-contacto + envío cifrado
 export const getCovert = (key: string) => j("/api/covert/config?key=" + encodeURIComponent(key))
 export const setCovert = (key: string, pass: string, style: string) => j("/api/covert/config", { method: "POST", body: JSON.stringify({ key, pass, style }) })
