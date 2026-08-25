@@ -264,6 +264,9 @@ export const sendMediaB64 = (key: string, b64: string, mime: string, filename: s
   jUpload("/api/send-media?" + q({ key, filename, channel: t?.channel, target: t?.target }), mime, b64)
 export const sendStickerB64 = (key: string, b64: string, mime: string, t?: any) =>
   jUpload("/api/send-sticker?" + q({ key, channel: t?.channel, target: t?.target }), mime, b64)
+// enviar un CONTACTO: el server arma el vCard con los datos que ya tiene de esa persona
+export const sendContact = (key: string, contacto: string, t?: { channel?: string; target?: string }) =>
+  j("/api/send-contact", { method: "POST", body: JSON.stringify({ key, contacto, channel: t?.channel, target: t?.target }) })
 // piloto automático
 export const getAutopilot = (key: string) => j("/api/autopilot/config?key=" + encodeURIComponent(key))
 export const setAutopilot = (key: string, enabled: boolean, maxPerDay = 0) => j("/api/autopilot/config", { method: "POST", body: JSON.stringify({ key, enabled, maxPerDay }) })

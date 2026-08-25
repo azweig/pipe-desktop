@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from "react"
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
-import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -326,6 +326,7 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const stickerRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false) // 🖼️ overlay al arrastrar archivos a la conversación
+  const [ctPick, setCtPick] = useState<{ q: string } | null>(null) // 👤 selector de contacto a enviar (vCard)
   const syncingRef = useRef(false)
   const ctxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)   // timer del contexto diferido (persona/targets/agenda/encubierto) — se cancela si cambiás de hilo rápido
   const ctxCacheRef = useRef<Map<string, { person: any; targets: any[]; sched: any; covert: string | null; t: number }>>(new Map()) // último contexto por hilo → reabrir el mismo enseguida no re-pide
@@ -757,6 +758,14 @@ export default function App() {
   }, [sel?.key])
   // 🩷 mandar una imagen como sticker (el server la convierte a webp 512×512)
   const onSticker = () => stickerRef.current?.click()
+  // 👤 ENVIAR UN CONTACTO: elegís a alguien que el hub ya conoce y el SERVER arma el vCard con sus datos reales.
+  // Llega como .vcf con leyenda (nombre + teléfono): el bridge de WhatsApp no sabe mandar tarjetas nativas.
+  const onSendContact = async (nombre: string) => {
+    setCtPick(null)
+    if (!sel) return
+    const r: any = await sendContact(sel.key, nombre, target()).catch((e: any) => ({ error: e?.message || "sin conexión con el hub" }))
+    if (r?.error) alert("No se pudo enviar el contacto: " + r.error)
+  }
   const onStickerPicked = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = ""; if (!f || !sel) return
     setBusy("attach")
@@ -1129,11 +1138,35 @@ export default function App() {
               {dragOver ? <div style={{ position: "fixed", inset: 0, zIndex: 9998, background: "rgba(18,18,28,.72)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: "#fff", fontSize: 21, fontWeight: 800, pointerEvents: "none", textAlign: "center" }}>📎 Soltá para adjuntar<span style={{ fontSize: 14, fontWeight: 500, opacity: .8, marginTop: 6 }}>varias fotos → collage · una → recortar</span></div> : null}
               <button className="clip tipup" data-tip="Adjuntar fotos, videos o archivos (varios)" onClick={onAttach} disabled={busy === "attach"}>{busy === "attach" ? "…" : "📎"}</button>
               <button className="clip tipup" data-tip="Mandar una imagen como sticker" onClick={onSticker} disabled={busy === "attach"}>😀</button>
+              <button className="clip tipup" data-tip="Enviar un contacto de tu agenda" onClick={() => setCtPick({ q: "" })}>👤</button>
               {/* nota de voz: graba y MANDA el audio */}
               <button className={"clip tipup" + (recording && !recAi ? " rec" : "")} data-tip={recording && !recAi ? "Detener y enviar la nota de voz" : "Nota de voz (graba y manda el audio)"} onClick={() => recording ? (!recAi && stopRec()) : startRec(false)} disabled={recording && recAi} style={{ color: recording && !recAi ? "#e2483d" : undefined }}>{recording && !recAi ? "⏹" : "🎤"}</button>
               {/* dictado IA: hablás y lo pasa a TEXTO (no manda audio) */}
               <button className={"clip iapill tipup" + (recording && recAi ? " rec" : "")} data-tip={recording && recAi ? "Detener y transcribir" : "Dictar con IA: hablás → texto"} onClick={() => recording ? (recAi && stopRec()) : startRec(true)} disabled={recording && !recAi} style={{ color: recording && recAi ? "#e2483d" : "var(--accent)" }}>{recording && recAi ? "⏹" : <><span style={{ fontSize: 15 }}>🎤</span><span style={{ fontSize: 8.5, fontWeight: 800, marginLeft: 1 }}>IA</span></>}</button>
               {draft.trim() ? <button className="send" onClick={onSend}>➤</button> : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👤 selector de contacto a enviar — la lista sale de los hilos que el hub ya conoce */}
+      {ctPick && (
+        <div className="modalbg" onClick={() => setCtPick(null)}>
+          <div className="modalcard" onClick={(e) => e.stopPropagation()}>
+            <h3>Enviar un contacto</h3>
+            <div className="modalsub">Se manda con sus datos (teléfono y correo) para que lo guarden en la agenda.</div>
+            <input className="inp" autoFocus placeholder="Buscar…" value={ctPick.q} onChange={(e) => setCtPick({ q: e.target.value })} style={{ marginBottom: 10 }} />
+            <div style={{ maxHeight: "46vh", overflow: "auto" }}>
+              {threads
+                .filter((t: any) => t.key && t.key !== "self" && !t.espacio && !t.group && t.name)
+                .filter((t: any) => !ctPick.q || (t.name || "").toLowerCase().includes(ctPick.q.toLowerCase()))
+                .slice(0, 60)
+                .map((t: any) => (
+                  <div key={t.key} className="rcard" onClick={() => onSendContact(t.name)}>
+                    <Avatar name={t.name} photo={t.photo} size={34} />
+                    <div className="rcbody"><div className="rcname">{t.name}</div></div>
+                  </div>
+                ))}
             </div>
           </div>
         </div>
