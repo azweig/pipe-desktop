@@ -260,6 +260,10 @@ export default function App() {
   const [draft, setDraft] = useState("")
   const [targets, setTargets] = useState<any[]>([])
   const [tgtCh, setTgtCh] = useState<string | null>(null) // canal elegido a mano (ej. "Responder" desde un email) — pisa el default
+  // Destino elegido a mano en el selector, guardado COMPLETO (`canal|destino`): elegir solo por canal no alcanza
+  // porque un hilo puede tener dos números de WhatsApp y quedarías mandando siempre al mismo.
+  const [tgtKey, setTgtKey] = useState<string | null>(null)
+  const [pickTgt, setPickTgt] = useState(false)
   const [threadAuto, setThreadAuto] = useState(false)         // ¿el contacto abierto tiene piloto automático?
   const [modal, setModal] = useState<any>(null)              // "apcfg" | { fb: msgId, original } | null
   const [threadErr, setThreadErr] = useState("")             // error al cargar el hilo (para no mostrar "Sin mensajes" falso)
@@ -497,7 +501,7 @@ export default function App() {
     // reabrir el MISMO hilo hace poco → reusamos su contexto (persona/targets/agenda/encubierto) en vez de re-pedirlo
     const cx = ctxCacheRef.current.get(t.key)
     const freshCx = !!cx && Date.now() - cx.t < 60000
-    setSel(t); setShowCtx(false); setDraft(""); setTgtCh(null); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
+    setSel(t); setShowCtx(false); setDraft(""); setTgtCh(null); setTgtKey(null); setPickTgt(false); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
     setPerson(freshCx ? cx!.person : null); setTargets(freshCx ? cx!.targets : []); setSched(freshCx ? cx!.sched : null); setThreadCovert(freshCx ? cx!.covert : null)
     // 1) LOCAL primero (IndexedDB) → los mensajes viejos aparecen al instante, sin re-descargar
     // 🔒 con 2º PIN NO uso la cache local: traigo fresco del server (que filtra las líneas ocultas cuando está bloqueado). El server es la única fuente de verdad.
@@ -675,7 +679,8 @@ export default function App() {
     return () => { stop = true; clearInterval(id) }
   }, [sel?.key, authed])
 
-  const target = () => (tgtCh && targets.find((x) => x.channel === tgtCh)) || targets.find((x) => x.isDefault) || targets[0]
+  const tgKey = (t: any) => `${t?.channel}|${t?.target}`
+  const target = () => (tgtKey && targets.find((x: any) => tgKey(x) === tgtKey)) || (tgtCh && targets.find((x) => x.channel === tgtCh)) || targets.find((x) => x.isDefault) || targets[0]
   const doSend = async (txt: string, covert = false) => {
     if (!txt.trim() || !sel) return
     const tg = target()
@@ -1149,7 +1154,19 @@ export default function App() {
                 </div>
               </div>
             ) : null}
-            <div className="cmeta">Responder por <b>{CH[target()?.channel as string]?.label || target()?.channel || CH[(sel.channels || [])[0]]?.label || "el canal habitual"}</b> · Pipe elige dónde suele responder</div>
+            <div className="cmeta">
+              Responder por{" "}
+              {targets.length > 1 ? (
+                // más de un destino → se puede ELEGIR. Antes esto era texto muerto y siempre mandaba al último
+                // usado, sin forma de cambiarlo (la web y el móvil sí dejaban).
+                <button className="tgtpick" onClick={() => setPickTgt(true)} title="Elegir a dónde mandar el mensaje">
+                  <b>{target()?.label || CH[target()?.channel as string]?.label || target()?.channel}</b> ▾
+                </button>
+              ) : (
+                <b>{CH[target()?.channel as string]?.label || target()?.channel || CH[(sel.channels || [])[0]]?.label || "el canal habitual"}</b>
+              )}
+              {targets.length > 1 ? " · elegí a dónde" : " · Pipe elige dónde suele responder"}
+            </div>
             <div className="crow">
               {threadCovert ? <button className="clip tipup" data-tip={covertOn ? "Encubierto ON — tocá para desactivar" : "Enviar cifrado (El Santo)"} onClick={() => setCovertOn((v) => !v)} style={{ background: covertOn ? "var(--accent)" : undefined, color: covertOn ? "#fff" : undefined }}>🕊️</button> : null}
               <button className="clip tipup" data-tip={correctOn ? "Corrijo con IA al enviar — tocá para enviar tal cual" : "Enviar tal cual — tocá para corregir con IA"} onClick={toggleCorrect} style={{ background: correctOn ? "var(--accent)" : undefined, color: correctOn ? "#fff" : undefined }}>✨</button>
@@ -1166,6 +1183,28 @@ export default function App() {
               <button className={"clip iapill tipup" + (recording && recAi ? " rec" : "")} data-tip={recording && recAi ? "Detener y transcribir" : "Dictar con IA: hablás → texto"} onClick={() => recording ? (recAi && stopRec()) : startRec(true)} disabled={recording && !recAi} style={{ color: recording && recAi ? "#e2483d" : "var(--accent)" }}>{recording && recAi ? "⏹" : <><span style={{ fontSize: 15 }}>🎤</span><span style={{ fontSize: 8.5, fontWeight: 800, marginLeft: 1 }}>IA</span></>}</button>
               {draft.trim() ? <button className="send" onClick={onSend}>➤</button> : null}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* selector de DESTINO: a qué número/correo de este contacto va el mensaje */}
+      {pickTgt && (
+        <div className="modalbg" onClick={() => setPickTgt(false)}>
+          <div className="modalcard" onClick={(e) => e.stopPropagation()}>
+            <h3>Responder por…</h3>
+            <div className="modalsub">Elegí a dónde mandar el mensaje.</div>
+            {targets.map((t: any) => {
+              const k = tgKey(t)
+              const activo = k === tgKey(target())
+              return (
+                <button key={k} className={"mbtn" + (activo ? "" : " ghost")} style={{ width: "100%", marginBottom: 8, display: "flex", alignItems: "center", gap: 8, textAlign: "left" }}
+                  onClick={() => { setTgtKey(k); setTgtCh(null); setPickTgt(false) }}>
+                  <span>{t.channel === "email" ? "✉️" : "📱"}</span>
+                  <span style={{ flex: 1 }}>{t.label || t.channel}</span>
+                  {t.isDefault ? <span style={{ fontSize: 11, opacity: 0.6 }}>último</span> : null}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
