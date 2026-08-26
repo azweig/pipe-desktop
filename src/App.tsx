@@ -264,6 +264,9 @@ export default function App() {
   // porque un hilo puede tener dos números de WhatsApp y quedarías mandando siempre al mismo.
   const [tgtKey, setTgtKey] = useState<string | null>(null)
   const [pickTgt, setPickTgt] = useState(false)
+  const [camOn, setCamOn] = useState(false) // 📷 captura por webcam (no existía en el escritorio)
+  const camVidRef = useRef<HTMLVideoElement | null>(null)
+  const camStreamRef = useRef<MediaStream | null>(null)
   const [threadAuto, setThreadAuto] = useState(false)         // ¿el contacto abierto tiene piloto automático?
   const [modal, setModal] = useState<any>(null)              // "apcfg" | { fb: msgId, original } | null
   const [threadErr, setThreadErr] = useState("")             // error al cargar el hilo (para no mostrar "Sin mensajes" falso)
@@ -783,6 +786,35 @@ export default function App() {
     return () => { cancelled = true; setDragOver(false); if (un) un() }
   }, [sel?.key])
   // 🩷 mandar una imagen como sticker (el server la convierte a webp 512×512)
+  // 📷 CÁMARA — no existía en el escritorio (ni en la web, donde el botón estaba escondido porque el atributo
+  // `capture` del input solo anda en el celular). Acá abrimos la webcam y capturamos a canvas.
+  const camStop = () => { try { camStreamRef.current?.getTracks().forEach((t) => t.stop()) } catch { /* ya cerrada */ } camStreamRef.current = null }
+  const abrirCamara = async () => {
+    if (!sel) return
+    setCamOn(true)
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 } }, audio: false })
+      camStreamRef.current = st
+      if (camVidRef.current) { camVidRef.current.srcObject = st; void camVidRef.current.play() }
+      else camStop() // cerraron el modal mientras pedía permiso
+    } catch (e: any) {
+      setCamOn(false)
+      alert(e?.name === "NotAllowedError" ? "No diste permiso de cámara." : "No pude abrir la cámara: " + (e?.message || ""))
+    }
+  }
+  const cerrarCamara = () => { camStop(); setCamOn(false) }
+  const sacarFoto = () => {
+    const v = camVidRef.current
+    if (!v || !v.videoWidth) return alert("La cámara todavía no está lista.")
+    const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight
+    c.getContext("2d")?.drawImage(v, 0, 0, c.width, c.height)
+    c.toBlob((blob) => {
+      cerrarCamara()
+      if (!blob) return alert("No pude capturar la imagen.")
+      void sendMediaBlob(blob, "image/jpeg", `foto-${Date.now()}.jpg`)
+    }, "image/jpeg", 0.9)
+  }
+
   const onSticker = () => stickerRef.current?.click()
   // 👤 ENVIAR UN CONTACTO: elegís a alguien que el hub ya conoce y el SERVER arma el vCard con sus datos reales.
   // Llega como .vcf con leyenda (nombre + teléfono): el bridge de WhatsApp no sabe mandar tarjetas nativas.
@@ -1177,11 +1209,26 @@ export default function App() {
               <button className="clip tipup" data-tip="Adjuntar fotos, videos o archivos (varios)" onClick={onAttach} disabled={busy === "attach"}>{busy === "attach" ? "…" : "📎"}</button>
               <button className="clip tipup" data-tip="Mandar una imagen como sticker" onClick={onSticker} disabled={busy === "attach"}>😀</button>
               <button className="clip tipup" data-tip="Enviar un contacto de tu agenda" onClick={() => setCtPick({ q: "" })}>👤</button>
+              <button className="clip tipup" data-tip="Sacar una foto con la cámara" onClick={() => void abrirCamara()}>📷</button>
               {/* nota de voz: graba y MANDA el audio */}
               <button className={"clip tipup" + (recording && !recAi ? " rec" : "")} data-tip={recording && !recAi ? "Detener y enviar la nota de voz" : "Nota de voz (graba y manda el audio)"} onClick={() => recording ? (!recAi && stopRec()) : startRec(false)} disabled={recording && recAi} style={{ color: recording && !recAi ? "#e2483d" : undefined }}>{recording && !recAi ? "⏹" : "🎤"}</button>
               {/* dictado IA: hablás y lo pasa a TEXTO (no manda audio) */}
               <button className={"clip iapill tipup" + (recording && recAi ? " rec" : "")} data-tip={recording && recAi ? "Detener y transcribir" : "Dictar con IA: hablás → texto"} onClick={() => recording ? (recAi && stopRec()) : startRec(true)} disabled={recording && !recAi} style={{ color: recording && recAi ? "#e2483d" : "var(--accent)" }}>{recording && recAi ? "⏹" : <><span style={{ fontSize: 15 }}>🎤</span><span style={{ fontSize: 8.5, fontWeight: 800, marginLeft: 1 }}>IA</span></>}</button>
               {draft.trim() ? <button className="send" onClick={onSend}>➤</button> : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📷 cámara: vista en vivo + disparo. Al cerrar se suelta el stream o la luz queda prendida. */}
+      {camOn && (
+        <div className="modalbg" onClick={cerrarCamara}>
+          <div className="modalcard" onClick={(e) => e.stopPropagation()}>
+            <h3>Sacar una foto</h3>
+            <video ref={camVidRef} autoPlay playsInline muted style={{ width: "100%", borderRadius: 12, background: "#000" }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="mbtn ghost" style={{ flex: 1 }} onClick={cerrarCamara}>Cancelar</button>
+              <button className="mbtn" style={{ flex: 1 }} onClick={sacarFoto}>Sacar foto</button>
             </div>
           </div>
         </div>

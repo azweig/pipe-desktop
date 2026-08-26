@@ -34,3 +34,20 @@ describe("selector de destino", () => {
     expect(css).toMatch(/\.tgtpick \{[^}]*cursor: pointer/)
   })
 })
+
+// 📷 CÁMARA — el escritorio tampoco podía sacar fotos (la web tenía el botón escondido y el escritorio ni eso).
+describe("cámara en el escritorio", () => {
+  it("hay botón y abre la webcam", () => {
+    expect(app).toMatch(/onClick=\{\(\) => void abrirCamara\(\)\}/)
+    expect(app).toMatch(/getUserMedia\(\{ video: \{ width: \{ ideal: 1280 \} \}, audio: false \}\)/)
+  })
+  it("la foto entra por el mismo camino que el resto de la media", () => {
+    const i = app.indexOf("const sacarFoto")
+    expect(app.slice(i, i + 600)).toMatch(/sendMediaBlob\(blob, "image\/jpeg"/)
+  })
+  it("suelta la cámara al cerrar y al disparar (si no, la luz queda prendida)", () => {
+    expect(app).toMatch(/const camStop = \(\) => \{[\s\S]{0,200}getTracks\(\)\.forEach\(\(t\) => t\.stop\(\)\)/)
+    const i = app.indexOf("const sacarFoto")
+    expect(app.slice(i, i + 600)).toMatch(/cerrarCamara\(\)/)
+  })
+})
