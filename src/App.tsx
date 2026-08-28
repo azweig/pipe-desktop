@@ -229,6 +229,16 @@ function Bubble({ m, isGroup, onFeedback, onOpenSender }: { m: Msg; isGroup?: bo
   )
 }
 
+// "se conocen hace X" — la web lo muestra y el escritorio no lo tenía.
+function antiguedad(ts: number) {
+  const dias = Math.max(0, Math.floor((Date.now() - ts) / 86400000))
+  if (dias < 31) return `${dias} día${dias === 1 ? "" : "s"}`
+  const meses = Math.floor(dias / 30.44)
+  if (meses < 12) return `${meses} mes${meses === 1 ? "" : "es"}`
+  const años = Math.floor(meses / 12), resto = meses % 12
+  return `${años} año${años === 1 ? "" : "s"}` + (resto ? ` y ${resto} mes${resto === 1 ? "" : "es"}` : "")
+}
+
 const NAV = [
   { id: "todo", ico: "▦", label: "Todo" }, { id: "prioritarios", ico: "✦", label: "Prioritarios" },
   { id: "sin", ico: "↩", label: "Sin responder" }, { id: "grupos", ico: "👥", label: "Grupos" },
@@ -252,6 +262,7 @@ export default function App() {
   const [sel, setSel] = useState<Thread | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [person, setPerson] = useState<any>(null)
+  const abiertoRef = useRef<string | null>(null) // hilo abierto AHORA (sincrónico): descarta respuestas de hilos ya cerrados
   const [loadingThread, setLoadingThread] = useState(false)
   const [showCtx, setShowCtx] = useState(false)              // panel de contexto: oculto hasta que hacés click en el nombre
   const [chOff, setChOff] = useState<Set<string>>(new Set()) // canales apagados (filtro real de la lista)
@@ -501,6 +512,10 @@ export default function App() {
   }, [destino, canal])
 
   const open = useCallback(async (t: Thread) => {
+    // CUÁL hilo está abierto, en una ref SINCRÓNICA. Sin esto, la respuesta lenta de getPerson del hilo anterior
+    // llegaba después de abrir otro y pisaba su ficha: te mostraba la bio, los teléfonos y los temas de OTRO
+    // contacto bajo el nombre correcto — indistinguible de un bug de identidad, y mucho más difícil de detectar.
+    abiertoRef.current = t.key
     // reabrir el MISMO hilo hace poco → reusamos su contexto (persona/targets/agenda/encubierto) en vez de re-pedirlo
     const cx = ctxCacheRef.current.get(t.key)
     const freshCx = !!cx && Date.now() - cx.t < 60000
@@ -545,10 +560,11 @@ export default function App() {
       ctxTimerRef.current = setTimeout(() => {
         const entry: { person: any; targets: any[]; sched: any; covert: string | null; t: number } = { person: null, targets: [], sched: null, covert: null, t: Date.now() }
         ctxCacheRef.current.set(t.key, entry)
-        getPerson(t.name).then((p) => { entry.person = p; setPerson(p) }).catch(() => {})
-        getTargets(t.key).then((r) => { entry.targets = r?.targets || []; setTargets(entry.targets) }).catch(() => {})
-        if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) { entry.sched = r; setSched(r) } }).catch(() => {})
-        getCovert(t.key).then((c) => { const st = c?.enabled ? (c.style || "poema") : null; entry.covert = st; setThreadCovert(st) }).catch(() => {}) // 🕊️ ¿modo encubierto?
+        const sigueAbierto = () => abiertoRef.current === t.key // llegó tarde y ya cambiaste de chat → se cachea, no se pinta
+        getPerson(t.name).then((p) => { entry.person = p; if (sigueAbierto()) setPerson(p) }).catch(() => {})
+        getTargets(t.key).then((r) => { entry.targets = r?.targets || []; if (sigueAbierto()) setTargets(entry.targets) }).catch(() => {})
+        if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) { entry.sched = r; if (sigueAbierto()) setSched(r) } }).catch(() => {})
+        getCovert(t.key).then((c) => { const st = c?.enabled ? (c.style || "poema") : null; entry.covert = st; if (sigueAbierto()) setThreadCovert(st) }).catch(() => {}) // 🕊️ ¿modo encubierto?
       }, 200)
     }
   }, [])
@@ -582,8 +598,19 @@ export default function App() {
     // guardado bajo otra identidad sin fusionar (ej. un apodo ≠ el nombre completo). NO abrimos un hilo vacío: avisamos.
     // La clave de un DM de WhatsApp es el nombre canónico, así que con pending=false abrimos por p.key || p.canon.
     const key = (p && !p.pending) ? (p.key || p.canon) : ""
-    if (key) { openByKey(key, p.name || nm, p.photo); setToast("") }
-    else setToast(`No encontré un chat 1:1 con ${nm} — puede estar guardado con otro nombre o solo aparecer en grupos`)
+    if (key) { openByKey(key, p.name || nm, p.photo); setToast(""); return }
+    // NO hay chat 1:1 todavía. Antes esto terminaba en un cartel de error y ahí te quedabas: para escribirle tenías
+    // que ir a "+ Nuevo" y copiar el número a mano. Pero conocemos su número (sale de la ficha), así que abrimos la
+    // conversación igual — que es lo que uno quiere al tocar el nombre de alguien en un grupo.
+    const tel = ((p && p.contacts && p.contacts.phones) || [])[0]
+    const mail = ((p && p.contacts && p.contacts.emails) || [])[0]
+    const destino = tel || mail
+    if (destino) {
+      const r: any = await nuevaConversacion(destino, tel ? "whatsapp" : "email").catch(() => null)
+      if (r && !r.error && r.key) { open({ key: r.key, name: r.name || p?.name || nm, lastChannel: r.channel } as Thread); setToast(""); return }
+    }
+    // sin número ni correo no hay a dónde escribirle: recién ahí avisamos, y decimos por qué.
+    setToast(`${nm} solo aparece en grupos y no tengo su número ni su correo para abrir un chat`)
   }, [threads, open, openByKey])
 
   // ── NOTIFICACIONES LOCALES (equivalente desktop del web-push/expo) ──
@@ -1300,6 +1327,35 @@ export default function App() {
           {(person?.topics || []).length > 0 && (<>
             <div className="cgrp">De qué hablan</div>
             <div className="cbox">{person.topics.slice(0, 4).join(" · ")}</div>
+          </>)}
+          {/* Lo que sigue la API YA lo mandaba y el escritorio simplemente no lo pintaba: antigüedad, grupos en común
+              y gente en común. Es la mitad del valor de la ficha — es lo que te dice quién es esta persona para vos. */}
+          {person?.stats?.firstTs ? (<>
+            <div className="cgrp">Desde cuándo</div>
+            <div className="cbox">
+              Se conocen hace <b>{antiguedad(person.stats.firstTs)}</b>
+              {person.stats.messages ? <> · {person.stats.messages.toLocaleString("es-PE")} mensajes</> : null}
+              {person.stats.respMin ? <> · responde en ~{person.stats.respMin} min</> : null}
+            </div>
+          </>) : null}
+          {(person?.shared?.groups || []).length > 0 && (<>
+            <div className="cgrp">Grupos en común · {person.shared.groups.length}</div>
+            {person.shared.groups.slice(0, 8).map((g: any, i: number) => (
+              <div key={i} className="member" onClick={() => g.thread && openByKey(g.thread, g.name)} title={`Abrir ${g.name}`}>
+                <Avatar name={g.name || "Grupo"} size={26} />
+                <span className="mname">{g.name}</span>
+              </div>
+            ))}
+          </>)}
+          {(person?.shared?.people || []).length > 0 && (<>
+            <div className="cgrp">Gente en común · {person.shared.people.length}</div>
+            {person.shared.people.slice(0, 10).map((q: any, i: number) => (
+              <div key={i} className="member" onClick={() => openByName(q.name)} title={`Abrir chat con ${q.name}`}>
+                <Avatar name={q.name} size={26} />
+                <span className="mname">{q.name}</span>
+                {q.shared ? <span className="due">{q.shared} grupos</span> : null}
+              </div>
+            ))}
           </>)}
           {sel.group && (() => {
             const members = [...new Set(msgs.filter((m) => m.dir !== "out" && m.name).map((m) => m.name as string))].sort((a, b) => a.localeCompare(b, "es"))
