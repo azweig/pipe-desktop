@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from "rea
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
 import { configurar as configurarCola, encolar, suscribir, pendientesDe, nuevoMsgId, flush as flushCola, type ItemCola } from "./outbox"
-import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -346,6 +346,7 @@ export default function App() {
   const stickerRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false) // 🖼️ overlay al arrastrar archivos a la conversación
   const [colaRev, setColaRev] = useState(0) // sube cuando la cola de envío cambia → repinta los 🕐
+  const [grupo, setGrupo] = useState<any>(null) // ficha del grupo abierto (quién habla más, temas, tu participación)
   // Lo que sigue en la cola se re-inyecta al pintar: recargar el hilo reemplaza `msgs` con lo del server y sin esto
   // la burbuja pendiente desaparecía de la vista aunque el envío siguiera vivo — parecería que el mensaje se perdió.
   const conCola = useMemo(() => {
@@ -520,7 +521,7 @@ export default function App() {
     const cx = ctxCacheRef.current.get(t.key)
     const freshCx = !!cx && Date.now() - cx.t < 60000
     setSel(t); setShowCtx(false); setDraft(""); setTgtCh(null); setTgtKey(null); setPickTgt(false); setThreadAuto(false); setThreadErr(""); setSumCard(""); setCovertOn(false); setHasMore(false); setOldestTs(0)
-    setPerson(freshCx ? cx!.person : null); setTargets(freshCx ? cx!.targets : []); setSched(freshCx ? cx!.sched : null); setThreadCovert(freshCx ? cx!.covert : null)
+    setPerson(freshCx ? cx!.person : null); setGrupo(null); setTargets(freshCx ? cx!.targets : []); setSched(freshCx ? cx!.sched : null); setThreadCovert(freshCx ? cx!.covert : null)
     // 1) LOCAL primero (IndexedDB) → los mensajes viejos aparecen al instante, sin re-descargar
     // 🔒 con 2º PIN NO uso la cache local: traigo fresco del server (que filtra las líneas ocultas cuando está bloqueado). El server es la única fuente de verdad.
     const local = secretPinSetRef.current ? { items: [] as Msg[], meta: null as any } : await cacheLoad(t.key)
@@ -562,6 +563,7 @@ export default function App() {
         ctxCacheRef.current.set(t.key, entry)
         const sigueAbierto = () => abiertoRef.current === t.key // llegó tarde y ya cambiaste de chat → se cachea, no se pinta
         getPerson(t.name).then((p) => { entry.person = p; if (sigueAbierto()) setPerson(p) }).catch(() => {})
+        if (t.group) getGrupo(t.key).then((g) => { if (sigueAbierto()) setGrupo(g && !g.error ? g : null) }).catch(() => {})
         getTargets(t.key).then((r) => { entry.targets = r?.targets || []; if (sigueAbierto()) setTargets(entry.targets) }).catch(() => {})
         if (!isEmailThread) getSchedule(t.key).then((r) => { if (r && r.found) { entry.sched = r; if (sigueAbierto()) setSched(r) } }).catch(() => {})
         getCovert(t.key).then((c) => { const st = c?.enabled ? (c.style || "poema") : null; entry.covert = st; if (sigueAbierto()) setThreadCovert(st) }).catch(() => {}) // 🕊️ ¿modo encubierto?
@@ -1354,6 +1356,26 @@ export default function App() {
                 <Avatar name={q.name} size={26} />
                 <span className="mname">{q.name}</span>
                 {q.shared ? <span className="due">{q.shared} grupos</span> : null}
+              </div>
+            ))}
+          </>)}
+          {/* CÓMO SE MUEVE EL GRUPO: quién habla más, de qué se habla y cuánto participás vos. Los grupos no tenían
+              nada de esto — entrabas y solo veías mensajes, sin saber si es un grupo donde hablás o uno que mirás. */}
+          {sel.group && grupo && (<>
+            <div className="cgrp">📊 Cómo se mueve este grupo</div>
+            <div className="cbox">
+              {grupo.total.toLocaleString("es-PE")} mensajes · {grupo.personas} personas · desde {new Date(grupo.primero).getFullYear()}
+              <div style={{ marginTop: 6 }}><b>Vos:</b> {grupo.yo.n.toLocaleString("es-PE")} ({grupo.yo.pct}%) · {grupo.yo.perfil}{grupo.yo.puesto ? ` · puesto ${grupo.yo.puesto}` : ""}</div>
+            </div>
+            {(grupo.temas || []).length ? (<><div className="cgrp">De qué se habla</div><div className="cbox">{grupo.temas.slice(0, 8).join(" · ")}</div></>) : null}
+            <div className="cgrp">Quiénes hablan más</div>
+            {(grupo.top || []).slice(0, 8).map((t: any, i: number) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 6px" }}>
+                <div style={{ flex: "0 0 40%", fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.nombre}</div>
+                <div style={{ flex: 1, height: 7, background: "var(--panel2)", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.max(2, t.pct)}%`, height: "100%", background: "var(--accent)" }} />
+                </div>
+                <div style={{ flex: "0 0 auto", minWidth: 44, textAlign: "right", fontSize: 11, color: "var(--muted)" }}>{t.pct}%</div>
               </div>
             ))}
           </>)}

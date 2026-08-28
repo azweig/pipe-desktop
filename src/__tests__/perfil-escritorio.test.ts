@@ -59,3 +59,23 @@ describe("el perfil muestra lo que la API ya mandaba", () => {
     expect(app).toMatch(/openByName\(q\.name\)/)
   })
 })
+
+// FICHA DE GRUPO en escritorio — misma info que la web: quién habla más, de qué se habla y cuánto participás.
+describe("ficha de grupo", () => {
+  it("se pide solo si el hilo es un grupo", () => {
+    expect(app).toMatch(/if \(t\.group\) getGrupo\(t\.key\)/)
+  })
+  it("respeta el guard de respuestas tardías (como el resto del contexto)", () => {
+    const i = app.indexOf("if (t.group) getGrupo(t.key)")
+    expect(app.slice(i, i + 160)).toMatch(/sigueAbierto\(\)/)
+  })
+  it("se limpia al cambiar de hilo (o mostraría el grupo anterior)", () => {
+    expect(app).toMatch(/setPerson\(freshCx \? cx!\.person : null\); setGrupo\(null\)/)
+  })
+  it("muestra participación, temas y ranking con barras", () => {
+    expect(app).toMatch(/Cómo se mueve este grupo/)
+    expect(app).toMatch(/grupo\.yo\.perfil/)
+    expect(app).toMatch(/grupo\.temas\.slice/)
+    expect(app).toMatch(/width: `\$\{Math\.max\(2, t\.pct\)\}%`/)
+  })
+})

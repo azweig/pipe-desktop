@@ -90,6 +90,8 @@ export const getAssistant = (): Promise<{ enabled?: boolean; web?: boolean; maxP
 export const setAssistant = (b: { enabled?: boolean; web?: boolean; maxPerDay?: number }) => j("/api/assistant", { method: "POST", body: JSON.stringify(b) })
 export const tryAssistant = (q: string): Promise<{ text?: string; usedWeb?: boolean; ownMatches?: number }> => j("/api/assistant/try", { method: "POST", body: JSON.stringify({ q }) })
 export const getPerson = (name: string) => j("/api/person?name=" + encodeURIComponent(name))
+// ficha de un GRUPO: quién habla más, de qué se habla y cuánto participás
+export const getGrupo = (key: string): Promise<any> => j("/api/group?key=" + encodeURIComponent(key))
 // DIRECTORIO COMPLETO de contactos (nodos del vault, no solo los hilos recientes) → { people:[{name,role,tags,initials}], companies:[{name,relation,tags}] }
 export const getDirectory = (): Promise<{ people?: any[]; companies?: any[] }> => j("/api/directory")
 // buscador CONTEXTUAL: busca dentro del CUERPO de los mensajes (no solo nombres) → [{key,who,ts,dir,text}]
