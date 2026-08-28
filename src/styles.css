@@ -626,3 +626,10 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .onbrow.done { color: var(--muted); }
 .onbt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .onbbtn { display: block; text-align: center; margin-top: 8px; background: var(--accent); color: #fff; border-radius: 8px; padding: 7px; font-size: 12.5px; font-weight: 700; text-decoration: none; }
+
+/* Próxima reunión — banda discreta arriba de la lista; en acento cuando ya casi empieza */
+.proxreu { display: flex; align-items: center; gap: 8px; margin: 8px 10px 0; padding: 7px 10px; border-radius: 9px;
+  background: var(--panel2); border: 1px solid var(--line); cursor: pointer; font-size: 12.5px; }
+.proxreu .pr-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proxreu .pr-w { flex: 0 0 auto; font-weight: 700; color: var(--accent); }
+.proxreu.ya { border-color: var(--accent); }

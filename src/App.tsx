@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from "rea
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
 import { configurar as configurarCola, encolar, suscribir, pendientesDe, nuevoMsgId, flush as flushCola, type ItemCola } from "./outbox"
-import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getProximaReunion, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -347,6 +347,13 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false) // 🖼️ overlay al arrastrar archivos a la conversación
   const [colaRev, setColaRev] = useState(0) // sube cuando la cola de envío cambia → repinta los 🕐
   const [grupo, setGrupo] = useState<any>(null) // ficha del grupo abierto (quién habla más, temas, tu participación)
+  const [proxReu, setProxReu] = useState<any>(null) // próxima reunión + cuánto falta
+  useEffect(() => {
+    const traer = () => { getProximaReunion().then((r) => setProxReu(r && !r.none ? r : null)).catch(() => {}) }
+    traer()
+    const t = setInterval(traer, 60000) // se refresca solo: la cuenta regresiva tiene que bajar sin recargar
+    return () => clearInterval(t)
+  }, [])
   // Lo que sigue en la cola se re-inyecta al pintar: recargar el hilo reemplaza `msgs` con lo del server y sin esto
   // la burbuja pendiente desaparecía de la vista aunque el envío siguiera vivo — parecería que el mensaje se perdió.
   const conCola = useMemo(() => {
@@ -1128,6 +1135,14 @@ export default function App() {
 
       {/* list */}
       <div className="list">
+        {/* PRÓXIMA REUNIÓN: tener la agenda no sirve si hay que ir a buscarla. Va acá arriba y se refresca solo. */}
+        {proxReu ? (
+          <div className={"proxreu" + (proxReu.enCurso || proxReu.faltanMin <= 30 ? " ya" : "")} onClick={() => setPane("calendario")} title="Ver la agenda">
+            <span>🗓️</span>
+            <span className="pr-t">{proxReu.title}</span>
+            <span className="pr-w">{proxReu.enCurso ? "ahora" : proxReu.cuando}</span>
+          </div>
+        ) : null}
         <div className="lhead"><h2>{query.trim() ? "Resultados" : "Conversaciones"}</h2>
           {/* 🔒 CUENTAS SECRETAS: PIN (bloqueado) ↔ Ocultar (desbloqueado) */}
           <button onClick={secretToggle} title={secretUnlocked ? "Ocultar" : "Ingresá tu PIN"}
