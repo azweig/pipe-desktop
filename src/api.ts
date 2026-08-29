@@ -100,7 +100,7 @@ export const getDirectory = (): Promise<{ people?: any[]; companies?: any[] }> =
 export const searchContent = (q: string) => j("/api/search?q=" + encodeURIComponent(q))
 // 🤖 buscador con IA (router): ⚡ facetas (0 tokens) o 🧠 RAG. Mismo endpoint que web/mobile.
 // → { mode:"facets"|"rag", type:"find"|…, engine, answer, results:[{key,name,ts,text,media,mediaType,filename}], threads:[{key,name,summary,path}], matches, ragMode, degraded }
-export const routerSearch = (q: string) => j("/api/router-search", { method: "POST", body: JSON.stringify({ q }) })
+export const routerSearch = (q: string) => j("/api/router-search", { method: "POST", body: JSON.stringify({ q, via: "escritorio" }) })
 // ── RADAR (coach) — feed proactivo: { promises[], questions[], waiting[], proposals[], nudges[], brief } ──
 export const getCoach = () => j("/api/coach")
 export const coachAction = (key: string, action: string) => j("/api/coach/action", { method: "POST", body: JSON.stringify({ key, action }) })
