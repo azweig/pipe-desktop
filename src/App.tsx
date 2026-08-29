@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from "rea
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
 import { configurar as configurarCola, encolar, suscribir, pendientesDe, nuevoMsgId, flush as flushCola, type ItemCola } from "./outbox"
-import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getProximaReunion, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getProximaReunion, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, jarvisHistorial, jarvisPreguntar, jarvisLimpiar, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
@@ -3240,8 +3240,19 @@ function Jarvis({ onHome }: { onHome: () => void }) {
   const ask = async (text?: string) => {
     const qq = (text || q).trim(); if (!qq || busy) return
     jarvisHistory.push({ role: "me", text: qq }); setQ(""); force((n) => n + 1); setBusy(true); scroll()
-    const r = await askBrain(qq).catch(() => null); setBusy(false)
+    const r = await jarvisPreguntar(qq).catch(() => null); setBusy(false)
     jarvisHistory.push({ role: "ai", text: (r && (r.answer || r.text || r.reply)) || "No pude responder ahora." }); force((n) => n + 1); scroll()
+  }
+  // la charla vive en el hub: al abrir Jarvis traemos lo que ya hablaste, venga de donde venga (incluido WhatsApp)
+  useEffect(() => {
+    if (jarvisHistory.length) return
+    jarvisHistorial().then((r) => {
+      if (r && Array.isArray(r.items) && r.items.length) { jarvisHistory = r.items.map((m: any) => ({ role: m.role, text: m.text })); force((n) => n + 1); scroll() }
+    }).catch(() => {})
+  }, [])
+  const limpiarCharla = async () => {
+    if (!confirm("¿Borrar la conversación con Jarvis? No se borra ningún mensaje tuyo, solo esta charla.")) return
+    await jarvisLimpiar().catch(() => {}); jarvisHistory = []; force((n) => n + 1)
   }
   const startVoice = async () => {
     if (recording) return

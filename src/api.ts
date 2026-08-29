@@ -130,6 +130,11 @@ export const getHome = () => j("/api/home")
 export const getHomeAudio = (): Promise<string> => hubImage("/api/home/audio")
 // 🧠 Jarvis / Ask-the-brain (IA REACTIVA: vos preguntás) → { answer }
 export const askBrain = (q: string): Promise<{ answer?: string; text?: string; reply?: string }> => j("/api/ask", { method: "POST", body: JSON.stringify({ q }) })
+// JARVIS con memoria: la charla vive en el hub (no en la app), así es la MISMA desde la web, el escritorio, el
+// celular y hasta lo que le preguntás por WhatsApp. Y usa el buscador completo, no solo el RAG de mensajes.
+export const jarvisHistorial = (): Promise<any> => j("/api/jarvis?limit=80")
+export const jarvisPreguntar = (q: string): Promise<any> => j("/api/jarvis", { method: "POST", body: JSON.stringify({ q, via: "escritorio" }) })
+export const jarvisLimpiar = (): Promise<any> => j("/api/jarvis/clear", { method: "POST", body: "{}" })
 // borrador de respuesta para un contacto (Home "Borrador IA") → { draft }
 export const replyDraft = (name: string, key: string): Promise<{ draft?: string; text?: string; reply?: string }> => j("/api/reply", { method: "POST", body: JSON.stringify({ name, key }) })
 // marcar una acción de la Home (to-do / promesa) como hecha
