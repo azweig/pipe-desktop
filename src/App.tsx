@@ -1017,7 +1017,7 @@ export default function App() {
   const list = pool.filter((t) => t.key !== "self" && !((t as any).espacio) && t.bucket !== "spam")
     // con búsqueda: ignora tab/categoría (busca en TODO); sin búsqueda: respeta tab
     // lo que vino del server ya matcheó allá (por clave o por nombre del remitente): no lo re-filtramos acá
-    .filter((t) => nq ? (remoteKeys.has(t.key) || matchQ(t)) : nav === "sin" ? (t.lastDir !== "out" && (t.unseen || t.unread)) : nav === "grupos" ? t.group : nav === "prioritarios" ? t.pinned
+    .filter((t) => nq ? (remoteKeys.has(t.key) || matchQ(t)) : nav === "sin" ? (t.lastDir !== "out" && (t.unseen || t.unread)) : nav === "grupos" ? t.group : nav === "prioritarios" ? (t.pinned || (t as any).importante)
       : CATS.some((c) => c.id === nav) ? inCat(t, nav) : true)
     .filter((t) => { const ch = t.channels || []; return !nq && ch.length ? ch.some((c) => !chOff.has(c)) : true }) // filtro por canal (no aplica en búsqueda)
     .sort((a, b) => (b.escalated ? 1 : 0) - (a.escalated ? 1 : 0)) // el piloto escaló → arriba de todo
@@ -1025,7 +1025,7 @@ export default function App() {
     todo: threads.filter((t) => t.unread || t.unseen).length,
     sin: threads.filter((t) => t.lastDir !== "out" && (t.unseen || t.unread)).length,
     grupos: threads.filter((t) => t.group).length,
-    prioritarios: threads.filter((t) => t.pinned).length,
+    prioritarios: threads.filter((t: any) => t.pinned || t.importante).length,
     familia: threads.filter((t) => t.bucket === "family").length,
     amigos: threads.filter((t) => t.bucket === "amigos").length,
     trabajo: threads.filter((t) => isWork(t)).length,
@@ -1157,6 +1157,7 @@ export default function App() {
             <Avatar name={t.name} photo={t.photo} />
             <div className="mid">
               <div className="top">
+                {(t as any).importante ? <span className="impdot" title={`Merece tu atención: ${(t as any).importanteRazon || ""}`}>✦</span> : null}
                 <span className="nm">{t.name}</span>
                 {t.escalated ? <span title={t.escalatedReason || "El piloto te lo pasó — revisá vos"} style={{ fontSize: 12 }}>🏖️⚠️</span> : null}
                 {(t as any).autopilot && !t.escalated ? <span title="Piloto automático activo" style={{ fontSize: 12 }}>🤖</span> : null}

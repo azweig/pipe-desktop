@@ -633,3 +633,6 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .proxreu .pr-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proxreu .pr-w { flex: 0 0 auto; font-weight: 700; color: var(--accent); }
 .proxreu.ya { border-color: var(--accent); }
+
+/* Merece tu atención: una invitación o un pedido concreto que sigue sin responder */
+.row .impdot { color: var(--accent); font-size: 11px; margin-right: 3px; flex: 0 0 auto; }
