@@ -359,3 +359,13 @@ export const getOnboarding = () => j("/api/onboarding")
 
 // canales que se pueden estrenar (sólo los CONECTADOS: ofrecer uno sin conectar sería un callejón sin salida)
 export const canalesNuevaConv = () => j("/api/conversation/channels")
+
+// 📧 SECCIÓN CORREO — solo email, en tres cajones (prioritarios / todos / spam). Existe porque la bandeja mezcla
+// millones de mensajes de mensajería con miles de correos, y porque el spam estaba escondido: un falso positivo
+// del clasificador era invisible y no se podía corregir.
+export type MailRow = { key: string; name?: string; email?: string; account?: string; ts?: number; unread?: number;
+  lastText?: string; lastDir?: string; importante?: boolean; razon?: string | null; transaccional?: boolean; spam?: boolean }
+export const getMail = (tab: string) => j(`/api/mail?tab=${encodeURIComponent(tab)}`)
+// Desmarcar corrige el clasificador para SIEMPRE, no sólo esta vista.
+export const mailNoSpam = (key: string) => j("/api/spam/unmark", { method: "POST", body: JSON.stringify({ key }) })
+export const mailEsSpam = (key: string) => j("/api/contact/spam", { method: "POST", body: JSON.stringify({ key, addr: key.replace(/^email:/, "") }) })

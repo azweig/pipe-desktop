@@ -9,6 +9,7 @@ import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secre
 import { chooseAndSendMedia, b64ToBlob, mimeFromName } from "./media"
 import { cacheLoad, cacheSave, cachePurge } from "./cache"
 import Calendar from "./Calendar"
+import Correo from "./Correo"
 // Pure display helpers (colorOf/initials/hhmm/fmtDur/ago) live in ./lib/format so they can be unit-tested.
 import { colorOf, initials, hhmm, fmtDur, ago } from "./lib/format"
 
@@ -251,7 +252,7 @@ const CATS = [
   { id: "silenciados", ico: "🔕", label: "Silenciados", bucket: "" },
 ]
 
-type Pane = "home" | "mensajes" | "calendario" | "radar" | "objetivos" | "jarvis" | "notas" | "espacios" | "contactos" | "entrena"
+type Pane = "home" | "mensajes" | "correo" | "calendario" | "radar" | "objetivos" | "jarvis" | "notas" | "espacios" | "contactos" | "entrena"
 // historial de Jarvis a nivel de módulo → persiste al cambiar de pane y se puede sembrar desde la Home (igual que la web)
 let jarvisHistory: { role: "me" | "ai"; text: string }[] = []
 
@@ -1039,6 +1040,7 @@ export default function App() {
         <div className="brand" />
         <button className={"tipright" + (pane === "home" ? " on" : "")} onClick={() => setPane("home")} data-tip="Inicio">🏠</button>
         <button className={"tipright" + (pane === "mensajes" ? " on" : "")} onClick={() => setPane("mensajes")} data-tip="Mensajes">💬</button>
+        <button className={"tipright" + (pane === "correo" ? " on" : "")} onClick={() => setPane("correo")} data-tip="Correo">📧</button>
         <button className={"tipright" + (pane === "calendario" ? " on" : "")} onClick={() => setPane("calendario")} data-tip="Calendario">🗓</button>
         <button className={"tipright" + (pane === "radar" ? " on" : "")} onClick={() => setPane("radar")} data-tip="Radar">✦</button>
         <button className={"tipright" + (pane === "objetivos" ? " on" : "")} onClick={() => setPane("objetivos")} data-tip="Objetivos">🎯</button>
@@ -1075,6 +1077,7 @@ export default function App() {
         const t = threads.find((x) => (x.name || "").trim().toLowerCase() === nn) || threads.find((x) => (x.name || "").toLowerCase().includes(nn.split(" ")[0]))
         setPane("mensajes"); if (t) open(t)
       }} onOpenMeeting={setMeetingId} />
+      : pane === "correo" ? <Correo onOpen={(k) => { setPane("mensajes"); openByKey(k) }} />
       : pane === "radar" ? <Radar onOpen={openByKey} onDraft={openWithDraft} />
       : pane === "objetivos" ? <Objetivos onToast={setToast} />
       : pane === "jarvis" ? <Jarvis onHome={() => setPane("home")} />
