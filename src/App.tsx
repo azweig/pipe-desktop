@@ -4,6 +4,7 @@ import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
 import { configurar as configurarCola, encolar, suscribir, pendientesDe, nuevoMsgId, flush as flushCola, type ItemCola } from "./outbox"
 import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getProximaReunion, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, jarvisHistorial, jarvisPreguntar, jarvisLimpiar, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
+import { hubDoc, hubDocSummarize, DocRef, DocData } from "./api" // visor de documentos (pdf/docx/xlsx)
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
 import { getSecretToken, setSecretToken, setSecretPinSet, getSecretStatus, secretSetup, secretUnlock, secretLock, getSecretState, secretSetWa, secretSetAccount } from "./api"
 import { chooseAndSendMedia, b64ToBlob, mimeFromName } from "./media"
@@ -137,21 +138,101 @@ function MediaView({ id, path, kind, filename, dur }: { id: string; path: string
 }
 // tarjeta de ARCHIVO/DOCUMENTO (pdf/docx/xlsx/…): igual que la web ("📄 nombre · Abrir / descargar"). Al click, el lado nativo
 // baja el archivo autenticado, lo guarda y lo abre con la app por defecto del SO (el webview no puede descargar con la cookie).
-function FileCard({ path, filename }: { path: string; filename: string }) {
+// ── VISOR DE DOCUMENTOS ───────────────────────────────────────────────────────────────────────────────────────
+// Paridad con la web y el mobile: el hub convierte el documento a páginas y acá sólo se muestran. La app NO parsea
+// el archivo — lo que te mandó un tercero no se ejecuta de este lado (mismo criterio que el visor de correo).
+function DocPage({ url, n }: { url: string; n: number }) {
+  const { src, ref } = useHubMedia(url) // lazy por visibilidad: un documento de 80 páginas no baja entero de una
+  if (!src) return <div ref={ref} className="mediaload" style={{ width: "100%", height: 260, marginBottom: 8 }}><div className="spin" style={{ width: 18, height: 18, borderWidth: 2 }} /></div>
+  return <img ref={ref} src={src} alt={"Página " + n} style={{ width: "100%", display: "block", marginBottom: 8, borderRadius: 6, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.12)" }} />
+}
+
+function DocViewer({ dref, onClose }: { dref: DocRef; onClose: () => void }) {
+  const [d, setD] = useState<DocData | null>(null)
+  const [modo, setModo] = useState<"paginas" | "texto">("paginas")
+  const [sumBusy, setSumBusy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    hubDoc(dref).then((r) => { if (!alive) return; setD(r); setModo(r && r.pages ? (r.vista || "paginas") : "texto") }).catch(() => { if (alive) setD({ error: "No se pudo abrir el documento." }) })
+    return () => { alive = false }
+  }, [dref.id, dref.media])
+
+  const nombre = d?.filename || dref.filename || "Documento"
+  const resumir = async () => {
+    if (!d?.id) return
+    setSumBusy(true)
+    const r = await hubDocSummarize({ id: d.id }).catch(() => null)
+    setSumBusy(false)
+    if (r && r.summary) setD({ ...d, summary: r.summary })
+  }
+
+  const tab = (id: "paginas" | "texto", etiqueta: string) => (
+    <button onClick={() => setModo(id)} style={{ fontSize: 12.5, fontWeight: 600, padding: "5px 12px", borderRadius: 8, cursor: "pointer",
+      border: "1px solid " + (modo === id ? "var(--accent)" : "var(--line2)"), background: modo === id ? "var(--accent)" : "transparent", color: modo === id ? "#fff" : "var(--accent)" }}>{etiqueta}</button>
+  )
+
+  return (
+    <div className="modalbg" onClick={onClose}>
+      <div className="modalcard wide" onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 style={{ wordBreak: "break-word" }}>{nombre}</h3>
+            <div className="modalsub">{!d ? "Convirtiendo las páginas…" : d.error ? "" : `${d.pages || 0} ${d.pages === 1 ? "página" : "páginas"}${(d.texto || "").trim() ? " · texto disponible" : ""}`}</div>
+          </div>
+          <button onClick={() => hubOpenFile(d?.media || dref.media || "", nombre).catch(() => {})} data-tip="Descargar y abrir con el sistema"
+            style={{ border: "1px solid var(--line2)", background: "transparent", color: "var(--accent)", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontWeight: 700 }}>↓</button>
+        </div>
+
+        {!d ? <div className="mediaload" style={{ height: 200, marginTop: 14 }}><div className="spin" /></div>
+        : d.error ? <div className="modalsub" style={{ marginTop: 12 }}>{d.error}</div>
+        : <>
+          <div style={{ display: "flex", gap: 6, margin: "12px 0 11px" }}>{tab("paginas", "📄 Documento")}{tab("texto", "📃 Texto")}</div>
+          {d.summary
+            ? <div className="aud-sum" style={{ marginBottom: 10 }}>{d.summary}</div>
+            : d.id ? <div style={{ marginBottom: 10 }}><button onClick={resumir} disabled={sumBusy}
+                style={{ fontSize: 12, fontWeight: 600, padding: "5px 11px", borderRadius: 8, border: "1px solid var(--line2)", background: "transparent", color: "var(--accent)", cursor: sumBusy ? "default" : "pointer", opacity: sumBusy ? .6 : 1 }}>
+                {sumBusy ? "Leyendo el documento…" : "✨ Resumir este documento"}</button></div> : null}
+
+          {modo === "texto"
+            ? ((d.texto || "").trim()
+              // pre-wrap: un contrato o una planilla traen su orden en los saltos de línea; aplastarlos lo vuelve ilegible
+              ? <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 13.5, lineHeight: 1.55, background: "var(--panel2)", borderRadius: 10, padding: 12, maxHeight: "58vh", overflow: "auto" }}>{d.texto}</div>
+              : <div className="modalsub">No se pudo extraer texto de este archivo.</div>)
+            : (d.pages
+              ? <div style={{ maxHeight: "58vh", overflow: "auto", background: "var(--panel2)", borderRadius: 10, padding: 8 }}>{(d.urls || []).map((u, i) => <DocPage key={u} url={u} n={i + 1} />)}</div>
+              : <div className="modalsub">{d.err || "Este formato no tiene vista de páginas."}</div>)}
+        </>}
+      </div>
+    </div>
+  )
+}
+
+const DOC_ABRIBLE = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i
+const docIcono = (n: string) => /\.(xlsx?|ods|csv)$/i.test(n) ? "📊" : /\.(docx?|odt|rtf)$/i.test(n) ? "📝" : /\.pptx?$/i.test(n) ? "📽" : "📄"
+
+function FileCard({ id, path, filename }: { id?: string; path: string; filename: string }) {
   const [state, setState] = useState<"" | "load" | "err">("")
+  const [ver, setVer] = useState(false)
+  // Si se puede mostrar adentro, se muestra adentro. Antes esto SIEMPRE bajaba el archivo y lo abría con el visor
+  // del sistema: para leer un contrato había que sacarlo de la app.
+  const abrible = DOC_ABRIBLE.test(filename || path)
   const open = async () => {
+    if (abrible) return setVer(true)
     if (state === "load") return
     setState("load")
     try { await hubOpenFile(path, filename === "Documento" ? "" : filename); setState("") } catch { setState("err") }
   }
   return (
-    <div className="filecard" onClick={open} data-tip="Abrir / descargar">
-      <span className="fca">{state === "load" ? "⏳" : "📄"}</span>
+    <>
+    {ver && <DocViewer dref={id ? { id, filename } : { media: path, filename }} onClose={() => setVer(false)} />}
+    <div className="filecard" onClick={open} data-tip={abrible ? "Ver adentro" : "Abrir / descargar"}>
+      <span className="fca">{state === "load" ? "⏳" : docIcono(filename || path)}</span>
       <div className="fcb">
         <div className="fcn">{filename}</div>
-        <div className="fcm">{state === "err" ? "No se pudo abrir — reintentá" : state === "load" ? "Descargando…" : "Abrir / descargar"}</div>
+        <div className="fcm">{state === "err" ? "No se pudo abrir — reintentá" : state === "load" ? "Descargando…" : abrible ? "Ver adentro" : "Abrir / descargar"}</div>
       </div>
     </div>
+    </>
   )
 }
 // convierte URLs del texto en links clickeables que abren en el navegador del sistema (no dentro del webview)
@@ -201,7 +282,9 @@ function Bubble({ m, isGroup, onFeedback, onOpenSender }: { m: Msg; isGroup?: bo
   const out = m.dir === "out"
   const [reveal, setReveal] = useState(false) // modo encubierto: ver la tapadera original (lo que ve WhatsApp)
   const hasMedia = m.media && /^(image|audio|video|sticker)$/.test(m.mediaType || "")
-  const isFile = m.mediaType === "file" && !!m.media
+  // el hub etiqueta los adjuntos como "document" o "file" según el canal: los dos son lo mismo para la vista.
+  // Antes sólo se contemplaba "file", así que un PDF de WhatsApp (que llega como "document") no mostraba ni la tarjeta.
+  const isFile = /^(file|document)$/.test(m.mediaType || "") && !!m.media
   const fileName = (m as any).filename || (m.text && !PLACEHOLDER.test(m.text) ? m.text : "") || "Documento"
   const caption = m.text && !PLACEHOLDER.test(m.text) ? m.text : ""
   return (
@@ -221,7 +304,7 @@ function Bubble({ m, isGroup, onFeedback, onOpenSender }: { m: Msg; isGroup?: bo
           <Linkified text={reveal ? (m.text || "") : m.covert.text} />
           <div className="covertbadge" onClick={() => setReveal((v) => !v)} title="Modo encubierto — lo que ve WhatsApp es la tapadera">🕊️ {reveal ? "ver descifrado" : "descifrado · ver original"}</div>
         </>
-      ) : hasMedia ? <MediaView id={m.id} path={m.media!} kind={m.mediaType!} filename={(m as any).filename} dur={(m as any).dur} /> : isFile ? <FileCard path={m.media!} filename={fileName} /> : (m.text ? <Linkified text={m.text} /> : (m.mediaType === "file" ? "📄 Documento" : ""))}
+      ) : hasMedia ? <MediaView id={m.id} path={m.media!} kind={m.mediaType!} filename={(m as any).filename} dur={(m as any).dur} /> : isFile ? (<><FileCard id={m.id} path={m.media!} filename={fileName} />{(m as any).summary ? <div className="aud-sum" style={{ marginTop: 6 }}>{(m as any).summary}</div> : null}</>) : (m.text ? <Linkified text={m.text} /> : (m.mediaType === "file" ? "📄 Documento" : ""))}
       {hasMedia && caption ? <div style={{ marginTop: 6 }}><Linkified text={caption} /></div> : null}
       {m.summary ? <div className="msgsum">✦ {m.summary}</div> : null}
       {m.auto ? <div className="autobadge" onClick={() => onFeedback?.(m)} title="Respondido por el piloto — calificar">🤖 lo respondió el piloto · calificar</div> : null}
@@ -2524,6 +2607,7 @@ function EmailModal({ m, onClose, onReply }: { m: Msg; onClose: () => void; onRe
   }, [m.id, m.hasBody])
   const mtg = m.channel === "meeting" || m.meeting
   const atts = parseAtts(m).filter((a) => !a.inline) // las inline (cid:) ya se ven DENTRO del correo → no son archivos a listar
+  const [attDoc, setAttDoc] = useState<DocRef | null>(null) // adjunto abierto en el visor de documentos
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
   const raw = body || `<pre style="white-space:pre-wrap;font-family:system-ui;font-size:14px">${esc(m.full || m.text || "")}</pre>`
   const hasRemote = /<img[^>]+src=["']https?:/i.test(raw)
@@ -2532,6 +2616,7 @@ function EmailModal({ m, onClose, onReply }: { m: Msg; onClose: () => void; onRe
     + '<style>body{margin:0;padding:12px;font-family:system-ui;color:#111;line-height:1.5;word-break:break-word}img{max-width:100%!important;height:auto}table{max-width:100%!important}</style>' + raw
   return (
     <div className="modalbg" onClick={onClose}><div className="modalcard wide" onClick={(e) => e.stopPropagation()}>
+      {attDoc && <DocViewer dref={attDoc} onClose={() => setAttDoc(null)} />}
       <div className="spread" style={{ alignItems: "flex-start", gap: 12 }}>
         <div style={{ minWidth: 0 }}>
           <h3 style={{ marginBottom: 2 }}>{mtg ? "🎙 Reunión" : "📧 Email"}</h3>
@@ -2554,12 +2639,19 @@ function EmailModal({ m, onClose, onReply }: { m: Msg; onClose: () => void; onRe
       {atts.length ? (
         <div style={{ margin: "12px 0 4px" }}>
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📎 {atts.length} adjunto{atts.length > 1 ? "s" : ""}</div>
-          {atts.map((a, i) => (
-            <div key={i} className="sendopt" style={{ cursor: "pointer" }} onClick={() => a.cas && hubOpenFile(a.cas, a.name || "").catch(() => {})}>
-              <div className="sot">📄 {a.name || "archivo"}</div>
-              <div className="sok">{(a.mime || "").split("/").pop() || "archivo"} · {attSize(a.size || 0)} · abrir ↓</div>
-            </div>
-          ))}
+          {/* Un PDF es un PDF venga de un chat o de un correo: abre en el MISMO visor. Antes esto siempre bajaba el
+              archivo y lo abría con el visor del sistema, o sea que salía de la app para poder leerlo. */}
+          {atts.map((a, i) => {
+            const nom = a.name || "archivo"
+            const abrible = !!a.cas && DOC_ABRIBLE.test(nom)
+            return (
+              <div key={i} className="sendopt" style={{ cursor: "pointer" }}
+                onClick={() => { if (abrible) setAttDoc({ media: a.cas!, filename: nom }); else if (a.cas) hubOpenFile(a.cas, nom).catch(() => {}) }}>
+                <div className="sot">{docIcono(nom)} {nom}</div>
+                <div className="sok">{abrible ? "ver adentro · " : ""}{(a.mime || "").split("/").pop() || "archivo"} · {attSize(a.size || 0)}</div>
+              </div>
+            )
+          })}
         </div>
       ) : null}
       {loading

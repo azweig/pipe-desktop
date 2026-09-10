@@ -260,6 +260,19 @@ export const investigateContact = (key: string, links: SocialLinks): Promise<Con
 // resumen IA de un audio/video/imagen RECIBIDO: transcribe + resume (traduce si está en otro idioma) → {summary, transcript?, lang?} | {error}
 export const summarizeMedia = (id: string): Promise<{ summary?: string; transcript?: string; lang?: string; error?: string }> =>
   j("/api/media/summarize", { method: "POST", body: JSON.stringify({ id }) })
+
+// ── VISOR DE DOCUMENTOS (pdf/docx/xlsx) ───────────────────────────────────────────────────────────────────────
+// El hub convierte y acá sólo se muestra. Las páginas llegan como /docview/… y se bajan con hubImage, igual que
+// cualquier otra imagen del hub: por el puente nativo, autenticadas, sin CORS.
+// La referencia es `id` para un adjunto de chat (que es un mensaje) o `media`+`filename` para uno de correo (que no).
+export type DocRef = { id?: string; media?: string; filename?: string }
+export type DocData = { id?: string | null; media?: string; filename?: string; vista?: "paginas" | "texto"; visor?: boolean; pages?: number; urls?: string[]; texto?: string; summary?: string; err?: string | null; error?: string }
+export const hubDoc = (ref: DocRef): Promise<DocData> => {
+  const qs = new URLSearchParams(Object.entries(ref).filter(([, v]) => !!v) as [string, string][]).toString()
+  return j("/api/doc?" + qs)
+}
+export const hubDocSummarize = (ref: DocRef & { rehacer?: boolean }): Promise<{ summary?: string; texto?: string; error?: string }> =>
+  j("/api/doc/summarize", { method: "POST", body: JSON.stringify(ref) })
 // composer rico (paridad con web/mobile)
 // 🔒 `key` (la clave del hilo) va para que el server, si el destino es una cuenta secreta, corrija con el modelo local
 // en vez de mandar lo que estás escribiendo a un tercero.
