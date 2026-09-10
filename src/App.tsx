@@ -207,7 +207,19 @@ function DocViewer({ dref, onClose }: { dref: DocRef; onClose: () => void }) {
   )
 }
 
-const DOC_ABRIBLE = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i
+// ¿Se puede mostrar adentro? NO alcanza con la extensión del filename: hay documentos que llegaron SIN nombre y
+// guardados como ".bin" —408 de 7.435 medidos en la base—, y entre ellos hay planillas y manuales reales. Se mira el
+// filename Y la ruta, y ante un tipo DESCONOCIDO se deja pasar: el servidor lo abre por su contenido y, si de verdad
+// no se puede, el visor lo dice y ofrece descargarlo. Rechazar por un dato que falta era el bug.
+const docExt = (s: string) => (String(s || "").match(/\.([a-z0-9]{2,5})$/i)?.[1] || "").toLowerCase()
+const DOC_VE = /^(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|html?)$/
+const DOC_NO = /^(zip|rar|7z|tar|gz|bz2|exe|apk|dmg|iso|mp3|mp4|mov|avi|mkv|webm|jpe?g|png|gif|webp|ogg|opus|m4a|wav|aac)$/
+const docAbrible = (filename?: string, media?: string) => {
+  const a = docExt(filename || ""), b = docExt(media || "")
+  if (DOC_VE.test(a) || DOC_VE.test(b)) return true
+  if (DOC_NO.test(a) || DOC_NO.test(b)) return false
+  return true // tipo desconocido (.bin, sin extensión) → que decida el servidor
+}
 const docIcono = (n: string) => /\.(xlsx?|ods|csv)$/i.test(n) ? "📊" : /\.(docx?|odt|rtf)$/i.test(n) ? "📝" : /\.pptx?$/i.test(n) ? "📽" : "📄"
 
 function FileCard({ id, path, filename }: { id?: string; path: string; filename: string }) {
@@ -215,7 +227,7 @@ function FileCard({ id, path, filename }: { id?: string; path: string; filename:
   const [ver, setVer] = useState(false)
   // Si se puede mostrar adentro, se muestra adentro. Antes esto SIEMPRE bajaba el archivo y lo abría con el visor
   // del sistema: para leer un contrato había que sacarlo de la app.
-  const abrible = DOC_ABRIBLE.test(filename || path)
+  const abrible = docAbrible(filename, path)
   const open = async () => {
     if (abrible) return setVer(true)
     if (state === "load") return
@@ -2643,7 +2655,7 @@ function EmailModal({ m, onClose, onReply }: { m: Msg; onClose: () => void; onRe
               archivo y lo abría con el visor del sistema, o sea que salía de la app para poder leerlo. */}
           {atts.map((a, i) => {
             const nom = a.name || "archivo"
-            const abrible = !!a.cas && DOC_ABRIBLE.test(nom)
+            const abrible = !!a.cas && docAbrible(nom, a.cas)
             return (
               <div key={i} className="sendopt" style={{ cursor: "pointer" }}
                 onClick={() => { if (abrible) setAttDoc({ media: a.cas!, filename: nom }); else if (a.cas) hubOpenFile(a.cas, nom).catch(() => {}) }}>
