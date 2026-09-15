@@ -3204,6 +3204,40 @@ function Home({ onOpen, onDraft, onNav, onOpenMeeting }: { onOpen: (k: string, n
 
         {!d?.generatedAt ? <div className="hb-empty" style={{ textAlign: "center", margin: "10px 0" }}>Generando tu resumen del día…</div> : null}
 
+        {/* LO QUE TE DEBE UNA RESPUESTA. El hub elige con reglas (la deuda y el fisco primero, siempre) y el modelo
+            sólo redacta; si el modelo no estuvo, `fuente` dice "reglas" y se muestra igual. Nunca queda vacía. */}
+        {(d?.resumen?.acciones || []).length ? (
+          <div className="hb-brief" style={{ background: "var(--panel)", border: "1px solid var(--line2)" }}>
+            <div className="hb-eyebrow" style={{ justifyContent: "space-between" }}>
+              <span><span>✉️</span> Te deben una respuesta</span>
+              <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }}>
+                {d.resumen.n?.pend || 0} pendientes · {d.resumen.n?.cerrados || 0} cerrados
+              </span>
+            </div>
+            {(d.resumen.acciones as string[]).map((a, i) => {
+              const it = (d.resumen.items || [])[i] || {}
+              const ic = it.tipo === "PLATA" ? "💰" : it.tipo === "PLAZO" ? "⏳" : it.tipo === "PERSONA" ? "👤" : "·"
+              return (
+                <div key={i} onClick={() => it.thread && onOpen(it.thread, it.quien)}
+                  style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "7px 0",
+                    borderTop: i ? "1px solid var(--line2)" : "none", cursor: it.thread ? "pointer" : "default" }}>
+                  <span style={{ flex: "none", fontSize: 15, lineHeight: 1.35 }}>{ic}</span>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.4 }}>{a}</div>
+                </div>
+              )
+            })}
+            {(d.resumen.cerrados || []).length ? (
+              <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid var(--line2)", fontSize: 12, color: "var(--muted)" }}>
+                ✓ Ya contestaste a {(d.resumen.cerrados as string[]).slice(0, 4).join(", ")}
+                {d.resumen.n?.cerrados > 4 ? ` y ${d.resumen.n.cerrados - 4} más` : ""}
+              </div>
+            ) : null}
+            {d.resumen.fuente === "reglas" ? (
+              <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--muted)", opacity: .75 }}>Ordenado por reglas — el resumen con IA se está generando.</div>
+            ) : null}
+          </div>
+        ) : null}
+
         {b.text ? (
           <div className="hb-brief">
             <div className="hb-eyebrow"><span>✦</span>Tu día en breve</div>
