@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from "rea
 import type { ChangeEvent, UIEvent, ReactNode } from "react"
 import { currentLang, setLang, LANGS, LANG_NAMES, type Lang } from "./i18n"
 import { configurar as configurarCola, encolar, suscribir, pendientesDe, nuevoMsgId, flush as flushCola, type ItemCola } from "./outbox"
-import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getProximaReunion, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, jarvisHistorial, jarvisPreguntar, jarvisLimpiar, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
+import { nuevaConversacion, canalesNuevaConv, getOnboarding, authStatus, login, setBase, getBase, getThreads, searchThreads, getThread, getThreadDelta, markSeen, getThreadBefore, getThreadSync, getEmailBody, getPerson, getGrupo, getProximaReunion, getDirectory, searchContent, routerSearch, getCoach, coachAction, getNotesDigest, getNotes, getNotesChat, notesChat, noteAction, getNotesClips, clipPin, clipArchive, mergeContacts, hubImage, hubOpenFile, getTargets, sendMsg, setPin, setArchive, setSilence, logout, getAutopilot, setAutopilot, autopilotFeedback, getAutopilotPolicy, setAutopilotPolicy, correctText, summarizeThread, getSchedule, createSchedule, sttB64, sendAudioB64, sendMediaB64, sendStickerB64, sendContact, blobToB64, getCovert, setCovert, openExternal, summarizeMedia, readFileB64, importWhatsAppB64, importWhatsAppZipB64, getHubConfig, saveHubConfig, getAccounts, getSignatures, saveSignature, getAssistant, setAssistant, tryAssistant, addEmailAccount, removeEmailAccount, getLlmConfig, testLlm, saveLlm, getNotifPrefs, saveNotifPrefs, getWaStatus, getStatus, getChannelsCatalog, ChannelDef, getMatrixLogins, getIntegrations, setSlack, removeSlack, setSignal, removeSignal, matrixLink, matrixStatus, matrixQrImage, matrixLinkToken, telegramStatus, telegramStart, telegramCode, telegramPassword, telegramConnected, getHome, getHomeAudio, askBrain, jarvisHistorial, jarvisPreguntar, jarvisLimpiar, replyDraft, actionDone, getObjetivos, getCompanies, saveObjetivo, deleteObjetivo, suggestObjetivos, getEspacios, getEspacioView, saveEspacio, deleteEspacio, addEspacioRule, delEspacioRule, addEspacioException, delEspacioException, getMeeting, getApifyAccounts, addApifyAccount, removeApifyAccount, setApifyActors, getContactSocial, setContactLinks, investigateContact, getCouncil, setCouncil, getTrainCard, getVoiceProfile, buildVoiceProfile, isDesktopApp, Thread, Msg, ApifyAccount, SocialLinks, ContactSocial , Council, TrainCard, VoiceProfile } from "./api"
 import { suggestReply } from "./api"
 import { hubDoc, hubDocSummarize, DocRef, DocData } from "./api" // visor de documentos (pdf/docx/xlsx)
 // 🔒 CUENTAS SECRETAS: token en memoria (api.ts), estado del 2º PIN, y wrappers de los endpoints
@@ -12,7 +12,7 @@ import { cacheLoad, cacheSave, cachePurge } from "./cache"
 import Calendar from "./Calendar"
 import Correo from "./Correo"
 // Pure display helpers (colorOf/initials/hhmm/fmtDur/ago) live in ./lib/format so they can be unit-tested.
-import { colorOf, initials, hhmm, fmtDur, ago } from "./lib/format"
+import { colorOf, initials, hhmm, fmtDur, ago, horaCorta } from "./lib/format"
 
 const CH: Record<string, { c: string; label: string }> = {
   whatsapp: { c: "var(--wa)", label: "WhatsApp" }, teams: { c: "var(--teams)", label: "Teams" },
@@ -2210,7 +2210,7 @@ function ConfirmDialog({ title, body, confirmLabel = "Eliminar cuenta", onCancel
   )
 }
 function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secretToggle }: { onClose: () => void; onOpenAutopilot: () => void; onToast: (m: string) => void; secretUnlocked: boolean; secretToggle: () => void }) {
-  const [tab, setTab] = useState<"canales" | "ia" | "notif" | "apify" | "backup">("canales")
+  const [tab, setTab] = useState<"canales" | "ia" | "notif" | "apify" | "backup" | "home">("canales")
   const [hub, setHub] = useState<any>(null)
   const [accts, setAccts] = useState<any>({ email: [] })
   const [llm, setLlm] = useState<any>(null)
@@ -2308,6 +2308,15 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
     if (r && r.ok) { setKey({ provider: "openai", name: "", token: "", test: "" }); setShowKey(false); onToast("✓ Key agregada"); load() }
     else onToast((r && r.error) || "No se pudo guardar")
   }
+  // El horario vive en hub-config (lo lee el daemon), no en las preferencias de avisos. Se guarda al toque de cada
+  // chip: es un solo campo y esperar un botón "Guardar" para un toggle es peor.
+  const homeHoras: number[] = Array.isArray(hub?.homeHoras) ? hub.homeHoras : [4, 16]
+  const toggleHora = async (h: number) => {
+    const next = homeHoras.includes(h) ? homeHoras.filter((x: number) => x !== h) : [...homeHoras, h].sort((a, b) => a - b)
+    setHub({ ...hub, homeHoras: next })
+    const r = await saveHubConfig({ homeHoras: next }).catch(() => null)
+    if (r && r.ok) setHub(r.config); else onToast("No se pudo guardar el horario")
+  }
   const saveQuiet = async (patch: any) => { const p = { ...notif, ...patch }; setNotif(p); await saveNotifPrefs({ quietStart: p.quietStart ?? null, quietEnd: p.quietEnd ?? null }).catch(() => {}) }
 
   const HOURS = ["—", ...Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"))]
@@ -2326,7 +2335,7 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
         <button onClick={onClose} style={{ fontSize: 20, color: "var(--muted)", width: 30, height: 30 }}>✕</button>
       </div>
       <div className="segtabs">
-        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["apify", "🔍 Enriquecer"], ["notif", "🔔 Avisos"], ["backup", "💾 Backup"]] as [string, string][]).map(([id, l]) =>
+        {([["canales", "📥 Canales"], ["ia", "🤖 IA"], ["apify", "🔍 Enriquecer"], ["notif", "🔔 Avisos"], ["home", "⏰ Home"], ["backup", "💾 Backup"]] as [string, string][]).map(([id, l]) =>
           <button key={id} className={"segtab" + (tab === id ? " on" : "")} onClick={() => setTab(id as any)}>{l}</button>)}
       </div>
       {loading ? <div className="center" style={{ height: 120 }}><div className="spin" /></div> : (<>
@@ -2434,6 +2443,21 @@ function SettingsModal({ onClose, onOpenAutopilot, onToast, secretUnlocked, secr
           <button className="btn" onClick={() => openExternal(getBase().replace(/\/$/, "") + "/oauth/backup/start")}>
             {backupSt?.connected ? "Reconectar o cambiar de cuenta" : "Conectar Google Drive"}
           </button>
+        </>)}
+        {/* ⏰ CUÁNDO SE REARMA EL RESUMEN DE LA HOME. Dos corridas al día, no un intervalo: así el trato con el usuario
+            es "entro a la mañana y está lo del día". Las chips son multi-selección; el server normaliza y descarta
+            lo inválido, y si no queda ninguna vuelve al default. */}
+        {tab === "home" && (<>
+          <label className="modallabel" style={{ marginTop: 6 }}>⏰ Horas del resumen "Te deben una respuesta"</label>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, lineHeight: 1.45 }}>
+            En cada corrida marca lo que ya contestaste y suma lo que llegó nuevo. Hora de tu zona ({hub?.timezone || "America/Lima"}).
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", margin: "10px 0 6px" }}>
+            {Array.from({ length: 24 }, (_, h) => h).map((h) => { const on = homeHoras.includes(h)
+              return <button key={h} className="hchip" onClick={() => toggleHora(h)}
+                style={{ background: on ? "var(--accent)" : "var(--panel2)", color: on ? "#fff" : "var(--muted)" }}>{String(h).padStart(2, "0")}</button> })}
+          </div>
+          <div className="cfg-note2">{homeHoras.length ? `Se rearma a las ${homeHoras.map((h) => String(h).padStart(2, "0") + ":00").join(" y ")}.` : "Sin ninguna marcada vuelve a 04:00 y 16:00."}</div>
         </>)}
         {tab === "notif" && (<>
           <label className="modallabel" style={{ marginTop: 6 }}>🌙 Horas de silencio — no te aviso en ese rango</label>
@@ -3205,10 +3229,13 @@ function Home({ onOpen, onDraft, onNav, onOpenMeeting }: { onOpen: (k: string, n
         {!d?.generatedAt ? <div className="hb-empty" style={{ textAlign: "center", margin: "10px 0" }}>Generando tu resumen del día…</div> : null}
 
         {/* LO QUE TE DEBE UNA RESPUESTA. El hub elige con reglas (la deuda y el fisco primero, siempre) y el modelo
-            sólo redacta; si el modelo no estuvo, `fuente` dice "reglas" y se muestra igual. Nunca queda vacía. */}
+            sólo redacta; si el modelo no estuvo, `fuente` dice "reglas" y se muestra igual. Nunca queda vacía.
+            OJO con la clase: va .hb-card y NO .hb-brief — `.hb-brief` trae `color:#fff` para la tarjeta OSCURA del brief,
+            y reusarla con fondo claro dejaba el texto BLANCO SOBRE BLANCO. El título y el pie se veían igual (traen color
+            propio), así que parecía que no llegaban los datos: desaparecían sólo las acciones. */}
         {(d?.resumen?.acciones || []).length ? (
-          <div className="hb-brief" style={{ background: "var(--panel)", border: "1px solid var(--line2)" }}>
-            <div className="hb-eyebrow" style={{ justifyContent: "space-between" }}>
+          <div className="hb-card" style={{ color: "var(--ink)" }}>
+            <div className="hb-eyebrow light" style={{ justifyContent: "space-between" }}>
               <span><span>✉️</span> Te deben una respuesta</span>
               <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 400 }}>
                 {d.resumen.n?.pend || 0} pendientes · {d.resumen.n?.cerrados || 0} cerrados
@@ -3220,20 +3247,25 @@ function Home({ onOpen, onDraft, onNav, onOpenMeeting }: { onOpen: (k: string, n
               return (
                 <div key={i} onClick={() => it.thread && onOpen(it.thread, it.quien)}
                   style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "7px 0",
-                    borderTop: i ? "1px solid var(--line2)" : "none", cursor: it.thread ? "pointer" : "default" }}>
+                    borderTop: i ? "1px solid var(--line)" : "none", cursor: it.thread ? "pointer" : "default" }}>
                   <span style={{ flex: "none", fontSize: 15, lineHeight: 1.35 }}>{ic}</span>
-                  <div style={{ fontSize: 13.5, lineHeight: 1.4 }}>{a}</div>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.4, color: "var(--ink)" }}>{a}</div>
                 </div>
               )
             })}
             {(d.resumen.cerrados || []).length ? (
-              <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid var(--line2)", fontSize: 12, color: "var(--muted)" }}>
+              <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid var(--line)", fontSize: 12, color: "var(--muted)" }}>
                 ✓ Ya contestaste a {(d.resumen.cerrados as string[]).slice(0, 4).join(", ")}
                 {d.resumen.n?.cerrados > 4 ? ` y ${d.resumen.n.cerrados - 4} más` : ""}
               </div>
             ) : null}
             {d.resumen.fuente === "reglas" ? (
               <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--muted)", opacity: .75 }}>Ordenado por reglas — el resumen con IA se está generando.</div>
+            ) : null}
+            {d.resumen.ts ? (
+              <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--muted)", opacity: .75 }}>
+                Actualizado {horaCorta(d.resumen.ts)}{d.resumen.proxima ? ` · próximo ${horaCorta(d.resumen.proxima)}` : ""}
+              </div>
             ) : null}
           </div>
         ) : null}

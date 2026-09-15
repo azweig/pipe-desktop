@@ -175,6 +175,7 @@ export const setSilence = (key: string, on = true) => j("/api/contact/silence", 
 export async function logout() { try { await j("/api/auth/logout", { method: "POST" }) } catch {}; SID = ""; try { localStorage.removeItem("sid") } catch {} }
 // ── Configuración (paridad con web/mobile) ──
 export const getHubConfig = () => j("/api/hub-config")
+export const saveHubConfig = (b: any) => j("/api/hub-config/save", { method: "POST", body: JSON.stringify(b) })
 export const getAccounts = () => j("/api/accounts")
 export const addEmailAccount = (b: { user: string; pass: string; name?: string }) => j("/api/accounts/email", { method: "POST", body: JSON.stringify(b) })
 export const removeEmailAccount = (label: string) => j("/api/accounts/email/remove", { method: "POST", body: JSON.stringify({ label }) })

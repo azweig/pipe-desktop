@@ -24,3 +24,12 @@ export const fmtDur = (s?: number) => { if (!s || !isFinite(s)) return ""; s = M
 // Relative time: today → HH:MM, yesterday → "Ayer", older → "12 mar".
 // "Ayer" queda en español a propósito: es la FUENTE, y el diccionario del idioma activo lo traduce sobre el DOM.
 export const ago = (ts?: number) => { if (!ts) return ""; const d = (Date.now() - ts) / 86400000; if (d < 1) return hhmm(ts); if (d < 2) return "Ayer"; return new Date(ts).toLocaleDateString(loc(), { day: "numeric", month: "short" }) }
+
+// "hoy 04:00" / "ayer 16:00" / "lun 16:00". El resumen de la Home se rearma a una hora que el usuario configuró,
+// así que tiene que poder verificar de un vistazo que se cumplió — un "hace 7 horas" no sirve para eso.
+export const horaCorta = (ts: number, ahora = Date.now()) => {
+  const f = new Date(ts), hoy = new Date(ahora)
+  const dd = Math.round((+new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()) - +new Date(f.getFullYear(), f.getMonth(), f.getDate())) / 86400000)
+  const hm = String(f.getHours()).padStart(2, "0") + ":" + String(f.getMinutes()).padStart(2, "0")
+  return (dd === 0 ? "hoy" : dd === 1 ? "ayer" : dd === -1 ? "mañana" : f.toLocaleDateString("es", { weekday: "short" })) + " " + hm
+}

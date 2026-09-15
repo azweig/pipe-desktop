@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { AV, colorOf, initials, hhmm, fmtDur, ago } from "../lib/format"
+import { AV, colorOf, initials, hhmm, fmtDur, ago, horaCorta } from "../lib/format"
 
 describe("colorOf", () => {
   it("returns a palette color", () => {
@@ -69,5 +69,23 @@ describe("ago", () => {
     const label = ago(Date.now() - 10 * 86400000)
     expect(label).not.toBe("")
     expect(label).not.toBe("Ayer")
+  })
+})
+
+// El resumen de la Home corre a una hora configurada por el usuario. Si el pie dice "hace 7 horas" no puede
+// verificar que se haya cumplido el horario que él mismo puso; con "hoy 04:00" sí.
+describe("horaCorta", () => {
+  const ahora = new Date(2026, 8, 15, 10, 30).getTime() // mar 15/09/2026 10:30 local
+  it("dice hoy con la hora de la corrida", () => {
+    expect(horaCorta(new Date(2026, 8, 15, 4, 0).getTime(), ahora)).toBe("hoy 04:00")
+  })
+  it("distingue ayer de hoy aunque falten menos de 24h", () => {
+    expect(horaCorta(new Date(2026, 8, 14, 16, 0).getTime(), ahora)).toBe("ayer 16:00")
+  })
+  it("la próxima corrida puede caer mañana", () => {
+    expect(horaCorta(new Date(2026, 8, 16, 4, 0).getTime(), ahora)).toBe("mañana 04:00")
+  })
+  it("más lejos que eso, el día de la semana", () => {
+    expect(horaCorta(new Date(2026, 8, 11, 16, 0).getTime(), ahora)).toMatch(/16:00$/)
   })
 })
