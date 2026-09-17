@@ -6,7 +6,8 @@
 // servicio y la notificación de una reunión ahí adentro, sin que se vieran en ningún lado.
 import { useEffect, useState } from "react"
 import { getMail, mailNoSpam, mailEsSpam, type MailRow } from "./api"
-import CorreoVista from "./CorreoVista"
+import CorreoVista, { Redactor } from "./CorreoVista"
+import { cuentasCorreo, type CuentaEnvio } from "./api"
 
 const TABS: [string, string][] = [["prioritarios", "Prioritarios"], ["todos", "Todos"], ["spam", "Spam"]]
 const ago = (ts?: number) => {
@@ -22,6 +23,9 @@ const ago = (ts?: number) => {
 // pero el clic normal ya NO sale de acá: abre el correo como correo, con su asunto, destinatarios y HTML.
 export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => void; onToast: (m: string) => void }) {
   const [abierto, setAbierto] = useState<string>("")
+  const [nuevo, setNuevo] = useState(false)                 // redactar un correo desde cero, sin hilo previo
+  const [cuentas, setCuentas] = useState<CuentaEnvio[]>([])
+  useEffect(() => { cuentasCorreo().then((r) => setCuentas(r.cuentas || [])).catch(() => {}) }, [])
   const [tab, setTab] = useState("prioritarios")
   const [items, setItems] = useState<MailRow[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -55,7 +59,10 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
 
   return (
     <div className="pane">
-      <div className="panehead"><h1>Correo</h1>{abierto ? <button className="cr-volver" onClick={() => setAbierto("")}>‹ Volver a la lista</button> : null}</div>
+      <div className="panehead"><h1>Correo</h1>
+        {abierto ? <button className="cr-volver" onClick={() => setAbierto("")}>‹ Volver a la lista</button>
+          : <button className="cr-nuevo" style={{ marginLeft: "auto" }} onClick={() => setNuevo(true)}>✉️ Correo nuevo</button>}
+      </div>
       {/* .panebody NO es decorativo: es el contenedor de scroll (flex:1 + min-height:0 + overflow-y:auto) que usan
           todas las vistas. Sin él la lista queda como hija directa de .pane, que es overflow:hidden — y flexbox, en
           vez de scrollear, ENCOGE las filas para que entren: el texto se desborda y las filas se pisan entre sí. */}
@@ -63,6 +70,8 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
           cuando abrís algo es leerlo. Volver es un clic. */}
       {abierto ? <CorreoVista correoKey={abierto} onToast={onToast} /> : (
       <div className="panebody">
+      {nuevo ? <Redactor inicial={{}} cuentas={cuentas} onCerrar={() => setNuevo(false)}
+        onEnviado={() => { setNuevo(false); cargar(tab) }} onToast={onToast} /> : null}
       <div className="mailtabs">
         {TABS.map(([id, lbl]) => (
           <button key={id} className={"mailtab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>

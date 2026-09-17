@@ -61,7 +61,7 @@ function Mensaje({ m, abierto, onToggle }: { m: CorreoMsg; abierto: boolean; onT
 // ── REDACTOR ─────────────────────────────────────────────────────────────────────────────────────────────────────
 // El cuerpo es un contentEditable. NO se sanea acá y ya: lo que se manda lo limpia el SERVIDOR, porque confiar en la
 // limpieza del cliente es confiar en que nadie va a llamar al endpoint a mano.
-function Redactor({ inicial, cuentas, onCerrar, onEnviado, onToast }: {
+export function Redactor({ inicial, cuentas, onCerrar, onEnviado, onToast }: {
   inicial: Partial<Preparado> & { to?: string[]; cc?: string[] }
   cuentas: CuentaEnvio[]; onCerrar: () => void; onEnviado: () => void; onToast: (m: string) => void
 }) {
@@ -74,7 +74,19 @@ function Redactor({ inicial, cuentas, onCerrar, onEnviado, onToast }: {
   const [enviando, setEnviando] = useState(false)
   const [guardado, setGuardado] = useState("")
   const cuerpoRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const borradorRef = useRef<string>("")
+  const [adjuntos, setAdjuntos] = useState<{ nombre: string; mime: string; b64: string; tam: number }[]>([])
+
+  // Los adjuntos viajan en base64 dentro del pedido. No se guardan en el borrador: un borrador con 20 MB adentro
+  // convierte el autoguardado de cada 4 segundos en una escritura de 20 MB cada 4 segundos.
+  const agregarArchivos = async (files: FileList | null) => {
+    for (const f of Array.from(files || [])) {
+      const b64 = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result || "")); r.readAsDataURL(f) })
+      setAdjuntos((prev) => [...prev, { nombre: f.name, mime: f.type || "application/octet-stream", b64, tam: f.size }])
+    }
+    if (fileRef.current) fileRef.current.value = ""
+  }
 
   // Autoguardado: perder un correo largo por cerrar una ventana es de las peores cosas que puede hacer un cliente
   // de correo. Cada 4s y sólo si hay algo escrito.
@@ -102,7 +114,7 @@ function Redactor({ inicial, cuentas, onCerrar, onEnviado, onToast }: {
       msgId: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), // candado anti-doble-envío
       cuenta, to, cc, bcc, asunto, html: cuerpoRef.current?.innerHTML || "",
       cita: inicial.cita || "", citaTxt: inicial.citaTxt || "", inReplyTo: inicial.inReplyTo || "",
-      borradorId: borradorRef.current || "",
+      borradorId: borradorRef.current || "", adjuntos,
     }).catch(() => ({ error: "No se pudo conectar con el hub." }))
     setEnviando(false)
     if (r?.error) { onToast(r.error); return }
@@ -138,7 +150,18 @@ function Redactor({ inicial, cuentas, onCerrar, onEnviado, onToast }: {
         <button title="Enlace" onClick={link}>🔗</button>
         <button title="Lista" onClick={() => fmt("insertUnorderedList")}>•—</button>
         <button title="Quitar formato" onClick={() => fmt("removeFormat")}>⌫</button>
+        <button title="Adjuntar archivo" onClick={() => fileRef.current?.click()}>📎</button>
+        <input ref={fileRef} type="file" multiple hidden onChange={(e) => agregarArchivos(e.target.files)} />
       </div>
+      {adjuntos.length ? (
+        <div className="cr-adj-red">
+          {adjuntos.map((a, i) => (
+            <span key={i} className="cr-chip">📎 {a.nombre} · {tam(a.tam)}
+              <button onClick={() => setAdjuntos((p) => p.filter((_, j) => j !== i))} title="Quitar">✕</button>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div ref={cuerpoRef} className="cr-editor" contentEditable suppressContentEditableWarning autoFocus={!!inicial.inReplyTo} />
       <div className="cr-firma-nota">Tu firma se agrega automáticamente al enviar{inicial.cita ? ", arriba del mensaje citado" : ""}.</div>
       <div className="cr-red-pie">
