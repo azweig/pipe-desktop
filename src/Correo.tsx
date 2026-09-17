@@ -32,15 +32,32 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
   const [cargando, setCargando] = useState(true)
   const [ocupado, setOcupado] = useState<string | null>(null)
 
-  const cargar = async (t: string) => {
-    setCargando(true)
+  const [refrescando, setRefrescando] = useState(false)
+  const cargar = async (t: string, silencioso = false) => {
+    if (!silencioso) setCargando(true)
     try {
       const r: any = await getMail(t)
       setItems((r && r.items) || []); setCounts((r && r.counts) || {})
     } catch { setItems([]) }
-    setCargando(false)
+    setCargando(false); setRefrescando(false)
   }
   useEffect(() => { cargar(tab) }, [tab])
+
+  // SE ACTUALIZA SOLO. No había forma de refrescar salvo cambiar de pestaña: la lista se quedaba con lo que había al
+  // entrar y un correo nuevo no aparecía nunca. Tres disparadores, y ninguno recarga a lo bruto:
+  //  · al volver a la ventana — el momento en que de verdad querés ver si llegó algo;
+  //  · cada 60s, PERO sólo con la ventana enfocada: pedir cada minuto contra un hub que no estás mirando es trabajo
+  //    tirado, y esta caja ya corre justa de CPU;
+  //  · el botón, para cuando no querés esperar.
+  // La recarga es "silenciosa": no pone el spinner ni vacía la lista, así no parpadea mientras leés.
+  useEffect(() => {
+    if (abierto || nuevo) return                       // leyendo o escribiendo: no le muevas la lista de abajo
+    const refrescar = () => { if (document.hasFocus()) cargar(tab, true) }
+    const alVolver = () => cargar(tab, true)
+    const id = setInterval(refrescar, 60000)
+    window.addEventListener("focus", alVolver)
+    return () => { clearInterval(id); window.removeEventListener("focus", alVolver) }
+  }, [tab, abierto, nuevo])
 
   // Marcar/desmarcar corrige el clasificador para siempre. Se saca la fila al toque (la respuesta del server ya no
   // la va a traer) y recién después se recarga: sin eso la fila queda un segundo y parece que no hizo nada.
@@ -61,7 +78,13 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
     <div className="pane">
       <div className="panehead"><h1>Correo</h1>
         {abierto ? <button className="cr-volver" onClick={() => setAbierto("")}>‹ Volver a la lista</button>
-          : <button className="cr-nuevo" style={{ marginLeft: "auto" }} onClick={() => setNuevo(true)}>✉️ Correo nuevo</button>}
+          : <>
+              <button className="cr-refrescar" style={{ marginLeft: "auto" }} title="Actualizar"
+                onClick={() => { setRefrescando(true); cargar(tab, true) }} disabled={refrescando}>
+                {refrescando ? "…" : "↻"}
+              </button>
+              <button className="cr-nuevo" onClick={() => setNuevo(true)}>✉️ Correo nuevo</button>
+            </>}
       </div>
       {/* .panebody NO es decorativo: es el contenedor de scroll (flex:1 + min-height:0 + overflow-y:auto) que usan
           todas las vistas. Sin él la lista queda como hija directa de .pane, que es overflow:hidden — y flexbox, en
