@@ -51,7 +51,11 @@ export default function Correo({ onOpen }: { onOpen: (key: string) => void }) {
 
   return (
     <div className="pane">
-      <div className="paneh"><h1>Correo</h1></div>
+      <div className="panehead"><h1>Correo</h1></div>
+      {/* .panebody NO es decorativo: es el contenedor de scroll (flex:1 + min-height:0 + overflow-y:auto) que usan
+          todas las vistas. Sin él la lista queda como hija directa de .pane, que es overflow:hidden — y flexbox, en
+          vez de scrollear, ENCOGE las filas para que entren: el texto se desborda y las filas se pisan entre sí. */}
+      <div className="panebody">
       <div className="mailtabs">
         {TABS.map(([id, lbl]) => (
           <button key={id} className={"mailtab" + (tab === id ? " on" : "")} onClick={() => setTab(id)}>
@@ -86,6 +90,7 @@ export default function Correo({ onOpen }: { onOpen: (key: string) => void }) {
             ))}
           </div>
         )}
+      </div>
     </div>
   )
 }
