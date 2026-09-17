@@ -1172,7 +1172,7 @@ export default function App() {
         const t = threads.find((x) => (x.name || "").trim().toLowerCase() === nn) || threads.find((x) => (x.name || "").toLowerCase().includes(nn.split(" ")[0]))
         setPane("mensajes"); if (t) open(t)
       }} onOpenMeeting={setMeetingId} />
-      : pane === "correo" ? <Correo onOpen={(k) => { setPane("mensajes"); openByKey(k) }} />
+      : pane === "correo" ? <Correo onToast={setToast} onOpen={(k) => { setPane("mensajes"); openByKey(k) }} />
       : pane === "radar" ? <Radar onOpen={openByKey} onDraft={openWithDraft} />
       : pane === "objetivos" ? <Objetivos onToast={setToast} />
       : pane === "jarvis" ? <Jarvis onHome={() => setPane("home")} />

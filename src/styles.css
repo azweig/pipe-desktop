@@ -658,6 +658,8 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .mailde{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .mailnm{font-weight:650;font-size:13.5px}
 .mailrow.mailnuevo .mailnm{font-weight:780}
+.mailn{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--panel2);border-radius:999px;padding:1px 7px;min-width:18px;text-align:center}
+.mailvos{font-weight:700;color:var(--accent);margin-right:5px}
 .mailcta{font-size:10px;font-weight:600;color:var(--muted);border:1px solid var(--line);padding:1px 6px;border-radius:6px}
 .mailtxt{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mailside{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
@@ -669,3 +671,44 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .mailact.ok{border-color:rgba(60,160,90,.5);color:#3ca05a}
 .mailact.ok:hover{background:rgba(60,160,90,.12)}
 .mailact:disabled{opacity:.45;cursor:default}
+
+/* ── CORREO: lector + redactor ───────────────────────────────────────────────────────────────────── */
+.cr-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 22px 40px; }
+.cr-asunto { font-size: 19px; font-weight: 750; line-height: 1.3; margin-bottom: 10px; }
+.cr-acciones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.cr-acciones button { font-size: 12.5px; font-weight: 650; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--ink); cursor: pointer; }
+.cr-acciones button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cr-acciones button:disabled { opacity: .4; cursor: default; }
+.cr-n { font-size: 12px; color: var(--muted); margin-left: auto; }
+.cr-vacio { padding: 40px 20px; text-align: center; color: var(--muted); }
+.cr-msg { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; background: var(--bg); }
+.cr-msg-head { display: flex; gap: 12px; align-items: flex-start; padding: 11px 14px; cursor: pointer; }
+.cr-msg-head:hover { background: var(--panel2); }
+.cr-de { font-weight: 700; font-size: 13.5px; }
+.cr-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; word-break: break-word; }
+.cr-fecha { font-size: 11.5px; color: var(--muted); white-space: nowrap; margin-left: auto; }
+.cr-body { width: 100%; height: 55vh; border: 0; border-top: 1px solid var(--line); background: #fff; display: block; }
+.cr-remotas { display: block; width: calc(100% - 28px); margin: 0 14px 10px; text-align: left; padding: 8px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.cr-remotas span { display: block; font-weight: 400; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.cr-adj { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
+.cr-chip { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; }
+/* redactor */
+.cr-red { border: 1px solid var(--accent); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; background: var(--bg); }
+.cr-red-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+.cr-x { font-size: 15px; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 2px 6px; }
+.cr-campo { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); padding: 6px 0; }
+.cr-campo > span { font-size: 12px; color: var(--muted); min-width: 46px; }
+.cr-campo input, .cr-campo select { flex: 1; min-width: 0; border: 0; background: none; font-size: 13.5px; color: var(--ink); outline: none; font-family: inherit; }
+.cr-mini { font-size: 11px; font-weight: 650; color: var(--muted); background: none; border: 0; cursor: pointer; }
+.cr-mini:hover { color: var(--accent); }
+.cr-tools { display: flex; gap: 4px; padding: 8px 0 6px; border-bottom: 1px solid var(--line); }
+.cr-tools button { width: 28px; height: 26px; border-radius: 6px; border: 1px solid transparent; background: none; cursor: pointer; font-size: 12.5px; color: var(--ink); }
+.cr-tools button:hover { background: var(--panel2); border-color: var(--line); }
+.cr-editor { min-height: 160px; max-height: 42vh; overflow-y: auto; padding: 10px 2px; font-size: 13.5px; line-height: 1.55; outline: none; color: var(--ink); }
+.cr-firma-nota { font-size: 11.5px; color: var(--muted); padding: 4px 0 8px; border-top: 1px solid var(--line); }
+.cr-red-pie { display: flex; align-items: center; gap: 12px; }
+.cr-enviar { font-size: 13px; font-weight: 700; padding: 8px 20px; border-radius: 9px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+.cr-enviar:disabled { opacity: .5; cursor: default; }
+.cr-guardado { font-size: 11.5px; color: var(--muted); }
+.cr-volver { margin-left: auto; font-size: 12.5px; font-weight: 650; color: var(--accent); background: none; border: 0; cursor: pointer; }
+.mailrow.sel { background: var(--panel2); border-color: var(--line); }

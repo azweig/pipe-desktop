@@ -378,8 +378,25 @@ export const canalesNuevaConv = () => j("/api/conversation/channels")
 // millones de mensajes de mensajería con miles de correos, y porque el spam estaba escondido: un falso positivo
 // del clasificador era invisible y no se podía corregir.
 export type MailRow = { key: string; name?: string; email?: string; account?: string; ts?: number; unread?: number;
-  lastText?: string; lastDir?: string; importante?: boolean; razon?: string | null; transaccional?: boolean; spam?: boolean }
+  count?: number; lastText?: string; lastDir?: string; importante?: boolean; razon?: string | null; transaccional?: boolean; spam?: boolean }
 export const getMail = (tab: string) => j(`/api/mail?tab=${encodeURIComponent(tab)}`)
 // Desmarcar corrige el clasificador para SIEMPRE, no sólo esta vista.
 export const mailNoSpam = (key: string) => j("/api/spam/unmark", { method: "POST", body: JSON.stringify({ key }) })
 export const mailEsSpam = (key: string) => j("/api/contact/spam", { method: "POST", body: JSON.stringify({ key, addr: key.replace(/^email:/, "") }) })
+
+// ── CORREO COMO CORREO: leer el hilo completo, preparar respuestas, redactar y enviar ──
+export type CorreoMsg = { id: string; ts: number; dir: string; cuenta?: string; de?: string; deNombre?: string
+  para: string[]; cc: string[]; sinDestinatarios?: boolean; asunto: string; resumen?: string; html: string
+  adjuntos: { nombre: string; mime?: string; tam?: number; media?: string }[] }
+export type CorreoHilo = { key: string; asunto: string; cuenta?: string; n: number; mensajes: CorreoMsg[]; error?: string }
+export type Preparado = { modo: string; cuenta?: string; to: string[]; cc: string[]; asunto: string
+  cita: string; citaTxt: string; inReplyTo: string; sinDestinatarios?: boolean; error?: string }
+export type CuentaEnvio = { label: string; user: string; nombre?: string }
+
+export const getCorreo = (key: string): Promise<CorreoHilo> => j(`/api/mail/message?key=${encodeURIComponent(key)}`)
+export const prepararCorreo = (key: string, modo: string): Promise<Preparado> =>
+  j(`/api/mail/prepare?key=${encodeURIComponent(key)}&modo=${encodeURIComponent(modo)}`)
+export const cuentasCorreo = (): Promise<{ cuentas: CuentaEnvio[]; firmas: any; fallback: any }> => j("/api/mail/accounts")
+export const enviarCorreo = (b: any) => j("/api/mail/send", { method: "POST", body: JSON.stringify(b) })
+export const guardarBorrador = (b: any) => j("/api/mail/draft", { method: "POST", body: JSON.stringify(b) })
+export const borrarBorrador = (id: string) => j("/api/mail/draft/delete", { method: "POST", body: JSON.stringify({ id }) })
