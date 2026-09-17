@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react"
 import { getMail, mailNoSpam, mailEsSpam, type MailRow } from "./api"
 import CorreoVista, { Redactor } from "./CorreoVista"
-import { cuentasCorreo, type CuentaEnvio } from "./api"
+import { cuentasCorreo, markSeen, marcarTodoLeido, type CuentaEnvio } from "./api"
 
 const TABS: [string, string][] = [["prioritarios", "Prioritarios"], ["todos", "Todos"], ["spam", "Spam"]]
 const ago = (ts?: number) => {
@@ -33,6 +33,15 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
   const [ocupado, setOcupado] = useState<string | null>(null)
 
   const [refrescando, setRefrescando] = useState(false)
+  // Destructivo y sin deshacer: se pierde qué estaba sin leer. Confirmación explícita, como el resto de la app.
+  const todoLeido = async () => {
+    const sinLeer = items.filter((x) => x.nuevo).length
+    if (!sinLeer) return onToast("Ya está todo leído.")
+    if (!confirm(`¿Marcar como leídos los ${sinLeer} correos sin leer de esta pestaña? No se puede deshacer.`)) return
+    const r: any = await marcarTodoLeido(tab).catch(() => null)
+    onToast(r?.ok ? `✓ ${r.marcados} marcados como leídos` : "No se pudo")
+    cargar(tab, true)
+  }
   const cargar = async (t: string, silencioso = false) => {
     if (!silencioso) setCargando(true)
     try {
@@ -83,6 +92,7 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
                 onClick={() => { setRefrescando(true); cargar(tab, true) }} disabled={refrescando}>
                 {refrescando ? "…" : "↻"}
               </button>
+              <button className="cr-refrescar" title="Marcar todo como leído" onClick={todoLeido}>✓✓</button>
               <button className="cr-nuevo" onClick={() => setNuevo(true)}>✉️ Correo nuevo</button>
             </>}
       </div>
@@ -112,7 +122,7 @@ export default function Correo({ onOpen, onToast }: { onOpen: (key: string) => v
                 con todo su contenido desbordado encima de las filas vecinas — que es como se veía roto el diseño.
                 Un modificador no puede llamarse igual que una clase que trae geometría. */}
             {items.map((m) => (
-              <div key={m.key} className={"mailrow" + (m.unread ? " mailnuevo" : "") + (abierto === m.key ? " sel" : "")} onClick={() => setAbierto(m.key)}>
+              <div key={m.key} className={"mailrow" + (m.nuevo ? " mailnuevo" : "") + (abierto === m.key ? " sel" : "")} onClick={() => { setAbierto(m.key); markSeen(m.key, Date.now()).then(() => cargar(tab, true)).catch(() => {}) }}>
                 <div className="mailmain">
                   <div className="mailde">
                     {m.importante ? <span className="mailbadge imp" title={m.razon || "Necesita tu atención"}>✦</span> : null}

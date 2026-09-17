@@ -378,7 +378,7 @@ export const canalesNuevaConv = () => j("/api/conversation/channels")
 // millones de mensajes de mensajería con miles de correos, y porque el spam estaba escondido: un falso positivo
 // del clasificador era invisible y no se podía corregir.
 export type MailRow = { key: string; name?: string; email?: string; account?: string; ts?: number; unread?: number;
-  count?: number; lastText?: string; lastDir?: string; importante?: boolean; razon?: string | null; transaccional?: boolean; spam?: boolean }
+  nuevo?: boolean; count?: number; lastText?: string; lastDir?: string; importante?: boolean; razon?: string | null; transaccional?: boolean; spam?: boolean }
 export const getMail = (tab: string) => j(`/api/mail?tab=${encodeURIComponent(tab)}`)
 // Desmarcar corrige el clasificador para SIEMPRE, no sólo esta vista.
 export const mailNoSpam = (key: string) => j("/api/spam/unmark", { method: "POST", body: JSON.stringify({ key }) })
@@ -400,3 +400,5 @@ export const cuentasCorreo = (): Promise<{ cuentas: CuentaEnvio[]; firmas: any; 
 export const enviarCorreo = (b: any) => j("/api/mail/send", { method: "POST", body: JSON.stringify(b) })
 export const guardarBorrador = (b: any) => j("/api/mail/draft", { method: "POST", body: JSON.stringify(b) })
 export const borrarBorrador = (id: string) => j("/api/mail/draft/delete", { method: "POST", body: JSON.stringify({ id }) })
+// Marcar todo el cajón como leído. Se pierde el estado de no-leído y no se puede deshacer: la UI lo confirma.
+export const marcarTodoLeido = (tab: string) => j("/api/mail/seen-all", { method: "POST", body: JSON.stringify({ tab }) })
