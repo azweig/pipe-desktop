@@ -68,8 +68,12 @@ export default function Correo({ onOpen }: { onOpen: (key: string) => void }) {
         : items.length === 0 ? <div className="mailnone">{vacio}</div>
         : (
           <div className="maillist">
+            {/* El modificador va `mailnuevo`, NO `unread`: `.unread` es el PUNTITO de 8x8 de la bandeja, con width,
+                height y border-radius propios. Usarlo acá convertía cada correo sin leer en un círculo de 8 píxeles
+                con todo su contenido desbordado encima de las filas vecinas — que es como se veía roto el diseño.
+                Un modificador no puede llamarse igual que una clase que trae geometría. */}
             {items.map((m) => (
-              <div key={m.key} className={"mailrow" + (m.unread ? " unread" : "")} onClick={() => onOpen(m.key)}>
+              <div key={m.key} className={"mailrow" + (m.unread ? " mailnuevo" : "")} onClick={() => onOpen(m.key)}>
                 <div className="mailmain">
                   <div className="mailde">
                     {m.importante ? <span className="mailbadge imp" title={m.razon || "Necesita tu atención"}>✦</span> : null}

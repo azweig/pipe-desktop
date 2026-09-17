@@ -22,7 +22,47 @@ const EXENTAS = new Set([...DEUDA_PREVIA, "mermaid"])
 const tsx = readdirSync(raiz).filter((f) => f.endsWith(".tsx"))
   .concat(readdirSync(join(raiz, "components")).filter((f) => f.endsWith(".tsx")).map((f) => join("components", f)))
 
+// Clases "átomo": las que traen GEOMETRÍA propia (ancho y alto fijos). Son elementos por derecho propio —un puntito,
+// un spinner— y NO pueden usarse como modificador de otra cosa: le imponen su tamaño al elemento que las recibe.
+// Caso real: `.unread` es el puntito de 8x8 de la bandeja, y la vista Correo la usaba como modificador de fila
+// (`"mailrow" + (m.unread ? " unread" : "")`). Cada correo sin leer se volvía un círculo de 8 píxeles con el texto
+// desbordado encima de las filas vecinas. El test de clases inexistentes NO lo ve: `unread` existe.
+// Se parte el CSS por reglas en vez de barrerlo con una regex: pidiendo `(^|})` antes del selector, el `}` que
+// cierra una regla se consume y la SIGUIENTE no matchea. Detectaba la mitad de las reglas y el test pasaba en falso.
+const ATOMOS = new Set<string>()
+for (const bloque of css.split("}")) {
+  const i = bloque.indexOf("{")
+  if (i < 0) continue
+  const selector = bloque.slice(0, i).trim().replace(/\/\*[\s\S]*?\*\//g, "").trim()
+  const cuerpo = bloque.slice(i + 1)
+  // Sólo un selector de UNA clase suelta define un átomo. `.a.b{}` o `.a .b{}` describen una combinación, no un
+  // elemento; contarlos marcaría como átomo a cualquier clase que aparezca en una regla compuesta con tamaño.
+  const m = /^\.([a-zA-Z][\w-]*)$/.exec(selector)
+  if (!m) continue
+  if (/(^|;)\s*width\s*:/.test(cuerpo) && /(^|;)\s*height\s*:/.test(cuerpo)) ATOMOS.add(m[1])
+}
+
 describe("clases CSS", () => {
+  it("las clases con geometría propia no se usan como modificador", () => {
+    const malos: string[] = []
+    for (const archivo of tsx) {
+      const src = readFileSync(join(raiz, archivo), "utf8")
+      for (const m of src.matchAll(/className=(?:"([^"]*)"|\{([^}]*)\})/g)) {
+        // EN ORDEN: la PRIMERA clase es la identidad del elemento; las siguientes son modificadores.
+        // `"att-st " + estado` está bien (el átomo ES el elemento, y `ok`/`no` sólo le cambian el color).
+        // `"mailrow" + " unread"` está mal (el átomo entra de modificador y le impone sus 8x8 a la fila).
+        const expr = m[1] ?? m[2] ?? ""
+        const clases = m[1] != null
+          ? m[1].split(/\s+/).filter(Boolean)
+          : [...String(expr).matchAll(/"([^"]*)"|'([^']*)'/g)]
+              .flatMap((l) => (l[1] ?? l[2] ?? "").split(/\s+/)).filter(Boolean)
+        const intrusos = clases.slice(1).filter((c) => ATOMOS.has(c))
+        if (intrusos.length) malos.push(`${archivo}: "${intrusos.join(",")}" usada como modificador de "${clases[0]}"`)
+      }
+    }
+    expect(malos, `una clase con ancho/alto propios impone su tamaño al elemento:\n${malos.join("\n")}`).toEqual([])
+  })
+
   for (const archivo of tsx) {
     it(`${archivo}: no usa clases inexistentes`, () => {
       const src = readFileSync(join(raiz, archivo), "utf8")
